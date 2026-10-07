@@ -1,7 +1,13 @@
-import type { ResolvedCartLine } from "../store/cart-store";
-
 export const SELLER_STATE = "Karnataka";
-export const MOCK_GST_RATE = 0.18;
+export const INDIAN_STATES = [
+  "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh",
+  "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jharkhand", "Karnataka",
+  "Kerala", "Madhya Pradesh", "Maharashtra", "Manipur", "Meghalaya", "Mizoram",
+  "Nagaland", "Odisha", "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu",
+  "Telangana", "Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal",
+  "Andaman and Nicobar Islands", "Chandigarh", "Dadra and Nagar Haveli and Daman and Diu",
+  "Delhi", "Jammu and Kashmir", "Ladakh", "Lakshadweep", "Puducherry",
+];
 
 export interface CheckoutFormValues {
   companyName: string;
@@ -16,27 +22,6 @@ export interface CheckoutFormValues {
 }
 
 export type CheckoutErrors = Partial<Record<keyof CheckoutFormValues, string>>;
-
-export interface GstBreakdown {
-  cgst: number;
-  sgst: number;
-  igst: number;
-  total: number;
-  isInterstate: boolean;
-}
-
-export function calculateGst(subtotal: number, customerState: string): GstBreakdown {
-  const taxTotal = Math.round(subtotal * MOCK_GST_RATE);
-  const isInterstate = customerState.trim().toLowerCase() !== SELLER_STATE.toLowerCase();
-
-  if (isInterstate) {
-    return { cgst: 0, sgst: 0, igst: taxTotal, total: taxTotal, isInterstate };
-  }
-
-  const cgst = Math.floor(taxTotal / 2);
-  const sgst = taxTotal - cgst;
-  return { cgst, sgst, igst: 0, total: taxTotal, isInterstate };
-}
 
 export function validateCheckoutForm(
   values: CheckoutFormValues,
@@ -81,45 +66,4 @@ export function validateCheckoutForm(
   }
 
   return errors;
-}
-
-export interface CheckoutOrderDraft {
-  customer: CheckoutFormValues;
-  lines: Array<{
-    productId: string;
-    name: string;
-    sku: string;
-    quantity: number;
-    unitPrice: number;
-    lineTotal: number;
-  }>;
-  subtotal: number;
-  gst: GstBreakdown;
-  total: number;
-}
-
-export function createCheckoutDraft(
-  customer: CheckoutFormValues,
-  lines: ResolvedCartLine[],
-): CheckoutOrderDraft {
-  const subtotal = lines.reduce(
-    (sum, line) => sum + line.product.price * line.quantity,
-    0,
-  );
-  const gst = calculateGst(subtotal, customer.state);
-
-  return {
-    customer: { ...customer },
-    lines: lines.map(({ product, quantity }) => ({
-      productId: product.id,
-      name: product.name,
-      sku: product.sku,
-      quantity,
-      unitPrice: product.price,
-      lineTotal: product.price * quantity,
-    })),
-    subtotal,
-    gst,
-    total: subtotal + gst.total,
-  };
 }

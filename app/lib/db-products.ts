@@ -82,7 +82,18 @@ export async function getProductsFromDb(options?: {
       return { products: [], total: 0, categories: DEFAULT_ACTIVE_CATEGORIES, brands: [] };
     }
 
-    const conditions: string[] = ["p.is_active = true"];
+    const conditions: string[] = [
+      "p.is_active = true",
+      `EXISTS (
+        SELECT 1
+        FROM public.ecom_product_catalog published_mapping
+        JOIN public.ecom_categories published_category
+          ON published_category.id = published_mapping.ecom_category_id
+        WHERE published_mapping.product_id = p.id
+          AND published_mapping.is_published = true
+          AND published_category.is_active = true
+      )`,
+    ];
     const params: unknown[] = [];
     let paramIndex = 1;
 
@@ -196,7 +207,7 @@ export async function getProductsFromDb(options?: {
     };
   } catch (err) {
     console.error("Error in getProductsFromDb:", err);
-    return { products: [], total: 0, categories: DEFAULT_ACTIVE_CATEGORIES, brands: [] };
+    throw err;
   }
 }
 
@@ -221,7 +232,17 @@ export async function getProductBySlugFromDb(slug: string): Promise<Product | nu
         FROM public.inventory_bin_stock
         GROUP BY product_id
       ) ibs ON p.id = ibs.product_id
-      WHERE (p.id::text = $1 OR p.sku = $1 OR p.name ILIKE $1) AND p.is_active = true
+      WHERE (p.id::text = $1 OR p.sku = $1 OR p.name ILIKE $1)
+        AND p.is_active = true
+        AND EXISTS (
+          SELECT 1
+          FROM public.ecom_product_catalog published_mapping
+          JOIN public.ecom_categories published_category
+            ON published_category.id = published_mapping.ecom_category_id
+          WHERE published_mapping.product_id = p.id
+            AND published_mapping.is_published = true
+            AND published_category.is_active = true
+        )
       ${developmentProductIds ? "AND (p.id = ANY($2::uuid[]) OR p.sku = ANY($3::text[]))" : ""}
       LIMIT 1
     `;
@@ -239,6 +260,6 @@ export async function getProductBySlugFromDb(slug: string): Promise<Product | nu
     );
   } catch (err) {
     console.error(`Error fetching product ${slug} from DB:`, err);
-    return null;
+    throw err;
   }
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { LoadingState, PageContainer, TextLink } from "../components/ui";
 import SiteFooter from "../components/site/SiteFooter";
@@ -8,23 +8,11 @@ import SiteHeader from "../components/site/SiteHeader";
 import { resolveCartLines, useCartStore } from "../store/cart-store";
 import { formatPrice } from "../store/products";
 import {
-  calculateGst,
-  createCheckoutDraft,
+  INDIAN_STATES,
   type CheckoutErrors,
   type CheckoutFormValues,
   validateCheckoutForm,
 } from "./checkout-utils";
-
-const checkoutDurationSeconds = 10 * 60;
-const indianStates = [
-  "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh",
-  "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jharkhand", "Karnataka",
-  "Kerala", "Madhya Pradesh", "Maharashtra", "Manipur", "Meghalaya", "Mizoram",
-  "Nagaland", "Odisha", "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu",
-  "Telangana", "Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal",
-  "Andaman and Nicobar Islands", "Chandigarh", "Dadra and Nagar Haveli and Daman and Diu",
-  "Delhi", "Jammu and Kashmir", "Ladakh", "Lakshadweep", "Puducherry",
-];
 
 const initialValues: CheckoutFormValues = {
   companyName: "",
@@ -37,12 +25,6 @@ const initialValues: CheckoutFormValues = {
   state: "",
   poNumber: "",
 };
-
-function formatTime(seconds: number) {
-  const minutes = Math.floor(seconds / 60).toString().padStart(2, "0");
-  const remaining = (seconds % 60).toString().padStart(2, "0");
-  return `${minutes}:${remaining}`;
-}
 
 interface CheckoutFieldProps {
   id: keyof CheckoutFormValues;
@@ -109,35 +91,18 @@ function CheckoutField({
 export default function CheckoutPage() {
   const items = useCartStore((state) => state.items);
   const hasHydrated = useCartStore((state) => state.hasHydrated);
+  const clearCart = useCartStore((state) => state.clearCart);
   const lines = resolveCartLines(items);
   const [values, setValues] = useState(initialValues);
   const [sameAsBilling, setSameAsBilling] = useState(true);
   const [errors, setErrors] = useState<CheckoutErrors>({});
-  const [remainingSeconds, setRemainingSeconds] = useState(checkoutDurationSeconds);
   const [feedback, setFeedback] = useState("");
-  const [orderDraft, setOrderDraft] = useState<ReturnType<typeof createCheckoutDraft> | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [orderNumber, setOrderNumber] = useState<string | null>(null);
   const subtotal = lines.reduce(
     (total, line) => total + line.product.price * line.quantity,
     0,
   );
-  const gst = values.state
-    ? calculateGst(subtotal, values.state)
-    : { cgst: 0, sgst: 0, igst: 0, total: 0, isInterstate: false };
-  const isExpired = remainingSeconds <= 0;
-
-  useEffect(() => {
-    const timerId = window.setInterval(() => {
-      setRemainingSeconds((current) => {
-        if (current <= 1) {
-          window.clearInterval(timerId);
-          return 0;
-        }
-        return current - 1;
-      });
-    }, 1000);
-
-    return () => window.clearInterval(timerId);
-  }, []);
 
   if (!hasHydrated) {
     return (
@@ -163,7 +128,7 @@ export default function CheckoutPage() {
     }));
     setErrors((current) => ({ ...current, [field]: undefined }));
     setFeedback("");
-    setOrderDraft(null);
+    setOrderNumber(null);
   };
 
   const updateSameAsBilling = (checked: boolean) => {
@@ -174,15 +139,10 @@ export default function CheckoutPage() {
     }
   };
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setFeedback("");
-    setOrderDraft(null);
-
-    if (isExpired) {
-      setFeedback("The checkout timer has expired. Return to the store to start again.");
-      return;
-    }
+    setOrderNumber(null);
 
     if (lines.length === 0) {
       setFeedback("Your cart is empty. Add products before continuing.");
@@ -201,17 +161,63 @@ export default function CheckoutPage() {
       return;
     }
 
-    const draft = createCheckoutDraft(
-      {
-        ...values,
-        gstin: values.gstin.trim().toUpperCase(),
-        shippingAddress: sameAsBilling ? values.billingAddress : values.shippingAddress,
-      },
-      lines,
-    );
-    setOrderDraft(draft);
-    setFeedback("Order details validated. Payment processing is not available yet.");
+    setIsSubmitting(true);
+    try {
+      const response = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customer: {
+            ...values,
+            email: values.email.trim(),
+            phone: values.phone.trim(),
+            gstin: values.gstin.trim().toUpperCase(),
+            shippingAddress: sameAsBilling ? values.billingAddress : values.shippingAddress,
+          },
+          lines: lines.map(({ product, quantity }) => ({
+            productId: product.id,
+            quantity,
+          })),
+        }),
+      });
+      const result: unknown = await response.json();
+      if (!response.ok || !result || typeof result !== "object" ||
+          !("orderNumber" in result) || typeof result.orderNumber !== "string") {
+        const message = result && typeof result === "object" && "error" in result &&
+          typeof result.error === "string"
+          ? result.error
+          : "We could not submit the order request. Please try again.";
+        setFeedback(message);
+        return;
+      }
+
+      setOrderNumber(result.orderNumber);
+      setFeedback("Your order request was saved. It is pending review; no payment was taken and inventory was not reserved.");
+      clearCart();
+    } catch {
+      setFeedback("We could not connect to the order service. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
+  if (orderNumber) {
+    return (
+      <div className="landing-page">
+        <SiteHeader currentPage="store" />
+        <main className="checkout-page">
+          <PageContainer className="checkout-empty">
+            <span className="section-heading__eyebrow">Order request received</span>
+            <h1>Thank you.</h1>
+            <p>{feedback}</p>
+            <p><strong>Reference: {orderNumber}</strong></p>
+            <Link className="checkout-primary" href="/store">Continue Shopping</Link>
+          </PageContainer>
+        </main>
+        <SiteFooter />
+      </div>
+    );
+  }
 
   if (lines.length === 0) {
     return (
@@ -219,7 +225,7 @@ export default function CheckoutPage() {
         <SiteHeader currentPage="store" />
         <main className="checkout-page">
           <PageContainer className="checkout-empty">
-            <span className="section-heading__eyebrow">Checkout</span>
+            <span className="section-heading__eyebrow">Order request</span>
             <h1>Your cart is empty.</h1>
             <p>Add products to your cart before starting checkout.</p>
             <Link className="checkout-primary" href="/store">Continue Shopping</Link>
@@ -237,14 +243,8 @@ export default function CheckoutPage() {
         <PageContainer className="checkout-page__container">
           <div className="checkout-page__heading">
             <p className="section-heading__eyebrow">Source Asia Direct</p>
-            <h1>Checkout</h1>
-            <p>Provide your company and delivery details to prepare the order.</p>
-          </div>
-
-          <div className="checkout-timer" role="timer" aria-live="off">
-            <span>Checkout session</span>
-            <strong>{formatTime(remainingSeconds)}</strong>
-            <small>This timer does not reserve inventory.</small>
+            <h1>Request an Order</h1>
+            <p>Submit your details for review. This does not take payment or reserve stock.</p>
           </div>
 
           <form className="checkout-layout" onSubmit={handleSubmit} noValidate>
@@ -265,7 +265,7 @@ export default function CheckoutPage() {
                     <span>State <i>*</i></span>
                     <select id="state" className="ui-select" value={values.state} aria-invalid={Boolean(errors.state)} aria-describedby={errors.state ? "state-error" : undefined} onChange={(event) => updateField("state", event.target.value)}>
                       <option value="">Select state</option>
-                      {indianStates.map((state) => <option value={state} key={state}>{state}</option>)}
+                      {INDIAN_STATES.map((state) => <option value={state} key={state}>{state}</option>)}
                     </select>
                     {errors.state && <span className="checkout-error" id="state-error">{errors.state}</span>}
                   </label>
@@ -289,7 +289,7 @@ export default function CheckoutPage() {
               </section>
 
               {feedback && (
-                <p className={orderDraft ? "checkout-feedback checkout-feedback--success" : "checkout-feedback"} role="status">
+                <p className="checkout-feedback" role="status">
                   {feedback}
                 </p>
               )}
@@ -309,25 +309,11 @@ export default function CheckoutPage() {
                 ))}
               </div>
               <div className="checkout-summary__totals">
-                <div><span>Subtotal</span><strong>{formatPrice(subtotal)}</strong></div>
-                {!values.state ? (
-                  <div><span>GST estimate</span><strong>Select a state</strong></div>
-                ) : gst.isInterstate ? (
-                  <div><span>IGST (18% estimate)</span><strong>{formatPrice(gst.igst)}</strong></div>
-                ) : (
-                  <>
-                    <div><span>CGST (9% estimate)</span><strong>{formatPrice(gst.cgst)}</strong></div>
-                    <div><span>SGST (9% estimate)</span><strong>{formatPrice(gst.sgst)}</strong></div>
-                  </>
-                )}
-                <div className="checkout-summary__grand-total">
-                  <span>Total</span>
-                  <strong>{formatPrice(subtotal + gst.total)}</strong>
-                </div>
+                <div><span>Subtotal estimate</span><strong>{formatPrice(subtotal)}</strong></div>
               </div>
-              <p className="checkout-summary__note">GST is an estimate for display only and will require backend verification.</p>
-              <button className="checkout-primary" type="submit" disabled={isExpired}>
-                {isExpired ? "Session expired" : "Prepare Order"}
+              <p className="checkout-summary__note">Final prices, stock, and applicable tax are confirmed by the Source Asia team. This request does not reserve inventory.</p>
+              <button className="checkout-primary" type="submit" disabled={isSubmitting}>
+                {isSubmitting ? "Submitting..." : "Submit Order Request"}
               </button>
               <TextLink className="checkout-continue" href="/store">Continue Shopping</TextLink>
             </aside>

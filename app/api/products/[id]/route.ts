@@ -7,7 +7,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    if (!id) {
+    if (!id || id.length > 200) {
       return NextResponse.json({ error: "Product ID required" }, { status: 400 });
     }
 
@@ -21,7 +21,7 @@ export async function GET(
   } catch (error) {
     console.error(`Error fetching product details:`, error);
     return NextResponse.json(
-      { error: "Failed to fetch product details", details: String(error) },
+      { error: "Failed to fetch product details" },
       { status: 500 }
     );
   }

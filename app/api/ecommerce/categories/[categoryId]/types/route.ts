@@ -3,10 +3,10 @@ import { getPublishedEcommerceCategoryTypes } from "../../../../../lib/ecommerce
 
 export async function GET(
   _request: NextRequest,
-  context: { params: { categoryId: string } }
+  context: { params: Promise<{ categoryId: string }> }
 ) {
   try {
-    const { categoryId } = context.params;
+    const { categoryId } = await context.params;
 
     if (!categoryId || typeof categoryId !== "string" || !categoryId.trim()) {
       return NextResponse.json(

@@ -3,10 +3,10 @@ import { getPublishedEcommerceProductById } from "../../../../lib/ecommerce-cata
 
 export async function GET(
   _request: NextRequest,
-  context: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = context.params;
+    const { id } = await context.params;
 
     if (!id || typeof id !== "string" || !id.trim()) {
       return NextResponse.json(

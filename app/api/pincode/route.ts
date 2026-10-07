@@ -7,6 +7,37 @@ export interface PostalResult {
   state: string;
 }
 
+interface IndiaPostOffice {
+  Pincode?: string;
+  Name?: string;
+  District?: string;
+  Division?: string;
+  State?: string;
+  Circle?: string;
+}
+
+function isIndiaPostOffice(value: unknown): value is IndiaPostOffice {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return ["Pincode", "Name", "District", "Division", "State", "Circle"].every(
+    (key) => record[key] === undefined || record[key] === null || typeof record[key] === "string",
+  );
+}
+
+function getPostOfficeGroup(value: unknown): { status: unknown; offices: IndiaPostOffice[] } | null {
+  if (!Array.isArray(value) || typeof value[0] !== "object" || value[0] === null || Array.isArray(value[0])) {
+    return null;
+  }
+
+  const group = value[0] as Record<string, unknown>;
+  return {
+    status: group.Status,
+    offices: Array.isArray(group.PostOffice) ? group.PostOffice.filter(isIndiaPostOffice) : [],
+  };
+}
+
 // Common prefix mappings for major Indian cities to enable partial prefix search
 const PREFIX_CITY_MAP: Record<string, string> = {
   "110": "Delhi",
@@ -49,11 +80,15 @@ export async function GET(request: NextRequest) {
     if (!query) {
       return NextResponse.json({ status: "ERROR", error: "Query parameter required", results: [] }, { status: 400 });
     }
+    if (query.length > 50) {
+      return NextResponse.json({ status: "ERROR", error: "Query is too long", results: [] }, { status: 400 });
+    }
 
     // 1. Exact 6-digit Indian PIN Code search
     if (/^[1-9][0-9]{5}$/.test(query)) {
       const response = await fetch(`https://api.postalpincode.in/pincode/${query}`, {
         next: { revalidate: 86400 }, // Cache for 24 hours
+        signal: AbortSignal.timeout(5000),
       });
 
       if (!response.ok) {
@@ -61,13 +96,14 @@ export async function GET(request: NextRequest) {
       }
 
       const data = await response.json();
-      const firstGroup = data?.[0];
+      const firstGroup = getPostOfficeGroup(data);
 
-      if (firstGroup?.Status === "Success" && Array.isArray(firstGroup.PostOffice) && firstGroup.PostOffice.length > 0) {
+      if (firstGroup?.status === "Success" && firstGroup.offices.length > 0) {
         const seen = new Set<string>();
         const results: PostalResult[] = [];
 
-        for (const po of firstGroup.PostOffice) {
+        for (const po of firstGroup.offices) {
+          if (!po.Pincode || !po.Name) continue;
           const key = `${po.Pincode}-${po.Name}`;
           if (!seen.has(key)) {
             seen.add(key);
@@ -93,18 +129,20 @@ export async function GET(request: NextRequest) {
 
       const response = await fetch(`https://api.postalpincode.in/postoffice/${targetCity}`, {
         next: { revalidate: 86400 },
+        signal: AbortSignal.timeout(5000),
       });
 
       if (response.ok) {
         const data = await response.json();
-        const firstGroup = data?.[0];
+        const firstGroup = getPostOfficeGroup(data);
 
-        if (firstGroup?.Status === "Success" && Array.isArray(firstGroup.PostOffice)) {
-          const filtered = firstGroup.PostOffice.filter((po: any) => po.Pincode && po.Pincode.startsWith(query));
+        if (firstGroup?.status === "Success") {
+          const filtered = firstGroup.offices.filter((po) => po.Pincode && po.Pincode.startsWith(query));
           const seen = new Set<string>();
           const results: PostalResult[] = [];
 
           for (const po of filtered) {
+            if (!po.Pincode || !po.Name) continue;
             if (!seen.has(po.Pincode)) {
               seen.add(po.Pincode);
               results.push({
@@ -129,6 +167,7 @@ export async function GET(request: NextRequest) {
     if (query.length >= 3 && /^[a-zA-Z\s.-]+$/.test(query)) {
       const response = await fetch(`https://api.postalpincode.in/postoffice/${encodeURIComponent(query)}`, {
         next: { revalidate: 86400 },
+        signal: AbortSignal.timeout(5000),
       });
 
       if (!response.ok) {
@@ -136,13 +175,14 @@ export async function GET(request: NextRequest) {
       }
 
       const data = await response.json();
-      const firstGroup = data?.[0];
+      const firstGroup = getPostOfficeGroup(data);
 
-      if (firstGroup?.Status === "Success" && Array.isArray(firstGroup.PostOffice) && firstGroup.PostOffice.length > 0) {
+      if (firstGroup?.status === "Success" && firstGroup.offices.length > 0) {
         const seen = new Set<string>();
         const results: PostalResult[] = [];
 
-        for (const po of firstGroup.PostOffice) {
+        for (const po of firstGroup.offices) {
+          if (!po.Pincode || !po.Name) continue;
           const key = `${po.Pincode}-${po.Name}`;
           if (!seen.has(key)) {
             seen.add(key);

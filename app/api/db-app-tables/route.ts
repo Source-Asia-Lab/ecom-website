@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
-import { pool } from "@/lib/db";
+import { getDbPool } from "../../lib/db";
 
 export async function GET() {
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   try {
-    const result = await pool.query(
+    const result = await getDbPool().query(
       "SELECT table_schema, table_name FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('information_schema', 'pg_catalog', 'drizzle') ORDER BY table_schema, table_name;"
     );
 

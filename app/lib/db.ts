@@ -2,23 +2,63 @@ import { Pool, QueryResultRow } from 'pg';
 import type { Product } from '../store/products';
 import { resolveProductImage } from './image-resolver';
 
-let pool: Pool;
+const globalForDb = globalThis as typeof globalThis & {
+  sourceAsiaDbPool?: Pool;
+};
 
 export function getDbPool(): Pool {
-  if (!pool) {
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) {
-      throw new Error("DATABASE_URL is required");
-    }
-
-    pool = new Pool({
-      connectionString,
-      ssl: { rejectUnauthorized: false },
-      max: 10,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
-    });
+  if (globalForDb.sourceAsiaDbPool) {
+    return globalForDb.sourceAsiaDbPool;
   }
+
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is required");
+  }
+
+  let databaseUrl: URL;
+  try {
+    databaseUrl = new URL(connectionString);
+  } catch {
+    throw new Error("DATABASE_URL must be a valid PostgreSQL connection URL");
+  }
+
+  if (databaseUrl.protocol !== 'postgres:' && databaseUrl.protocol !== 'postgresql:') {
+    throw new Error("DATABASE_URL must use the postgres or postgresql protocol");
+  }
+
+  const sslMode = databaseUrl.searchParams.get('sslmode');
+  const isLocalDatabase = ['localhost', '127.0.0.1', '::1'].includes(databaseUrl.hostname);
+  if (sslMode && !['verify-full', 'require', 'disable'].includes(sslMode)) {
+    throw new Error("DATABASE_URL sslmode must be verify-full, require (development only), or disable for local development");
+  }
+  if (sslMode === 'disable' && (!isLocalDatabase || process.env.NODE_ENV === 'production')) {
+    throw new Error("Unencrypted database connections are only allowed for local development");
+  }
+  if (process.env.NODE_ENV === 'production' && sslMode !== 'verify-full') {
+    throw new Error("Production DATABASE_URL must include sslmode=verify-full");
+  }
+
+  let verifiedConnectionString = connectionString;
+  if (sslMode === 'require' && process.env.NODE_ENV !== 'production') {
+    databaseUrl.searchParams.set('sslmode', 'verify-full');
+    verifiedConnectionString = databaseUrl.toString();
+    console.warn("Development DATABASE_URL uses sslmode=require; upgrading the connection to certificate verification.");
+  } else if (!sslMode && !isLocalDatabase) {
+    databaseUrl.searchParams.set('sslmode', 'verify-full');
+    verifiedConnectionString = databaseUrl.toString();
+  }
+
+  const pool = new Pool({
+    connectionString: verifiedConnectionString,
+    ssl: sslMode === 'disable' || (!sslMode && isLocalDatabase)
+      ? false
+      : { rejectUnauthorized: true },
+    max: 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+  });
+  globalForDb.sourceAsiaDbPool = pool;
   return pool;
 }
 

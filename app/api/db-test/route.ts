@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
-import { pool } from "@/lib/db";
+import { getDbPool } from "../../lib/db";
 
 export async function GET() {
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   try {
-    const result = await pool.query("SELECT NOW() AS current_time");
+    const result = await getDbPool().query("SELECT NOW() AS current_time");
 
     return NextResponse.json({
       success: true,
