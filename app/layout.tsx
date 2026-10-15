@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import AuthSessionProvider from "./components/auth/AuthSessionProvider";
 import CartHydrator from "./components/cart/CartHydrator";
 import "./globals.css";
 
@@ -26,8 +27,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <CartHydrator />
-        {children}
+        <AuthSessionProvider>
+          <CartHydrator />
+          {children}
+        </AuthSessionProvider>
       </body>
     </html>
   );

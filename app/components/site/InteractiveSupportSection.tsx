@@ -32,6 +32,10 @@ export default function InteractiveSupportSection() {
   const [typingSpeed, setTypingSpeed] = useState(70);
   const [showModal, setShowModal] = useState(false);
   const [enquirySuccess, setEnquirySuccess] = useState(false);
+  const [enquiryError, setEnquiryError] = useState("");
+  const [ticketNumber, setTicketNumber] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [userMessage, setUserMessage] = useState("");
 
@@ -73,16 +77,38 @@ export default function InteractiveSupportSection() {
     }
   };
 
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (userEmail.trim()) {
+    setEnquiryError("");
+    setIsSubmitting(true);
+    try {
+      const response = await fetch("/api/support/tickets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: userName,
+          email: userEmail,
+          subject: `Support inquiry: ${displayText || "General support"}`,
+          category: "OTHER",
+          message: userMessage,
+          website: new FormData(e.currentTarget).get("website"),
+        }),
+      });
+      const result = (await response.json()) as { ticketNumber?: string; error?: string };
+      if (!response.ok) throw new Error(result.error || "Could not send your request.");
+      setTicketNumber(result.ticketNumber || "");
       setEnquirySuccess(true);
       setTimeout(() => {
         setEnquirySuccess(false);
         setShowModal(false);
+        setUserName("");
         setUserEmail("");
         setUserMessage("");
       }, 2500);
+    } catch (error) {
+      setEnquiryError(error instanceof Error ? error.message : "Could not send your request.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -160,13 +186,28 @@ export default function InteractiveSupportSection() {
               <div className="support-modal-success">
                 <span className="success-icon">✓</span>
                 <h4>Enquiry Submitted!</h4>
-                <p>Our team will contact you shortly regarding: &quot;{displayText}&quot;</p>
+                <p>Your request is recorded. Reference: {ticketNumber}</p>
               </div>
             ) : (
               <form onSubmit={handleFormSubmit} className="support-modal-form">
                 <p className="modal-topic-preview">
                   Topic: <strong>{displayText}</strong>
                 </p>
+
+                {enquiryError && <p className="account-notice" role="alert">{enquiryError}</p>}
+
+                <div className="modal-form-group">
+                  <label htmlFor="support-name">Name *</label>
+                  <input
+                    id="support-name"
+                    type="text"
+                    required
+                    maxLength={200}
+                    value={userName}
+                    onChange={(e) => setUserName(e.target.value)}
+                    className="modal-input"
+                  />
+                </div>
 
                 <div className="modal-form-group">
                   <label htmlFor="support-email">Business Email *</label>
@@ -186,6 +227,9 @@ export default function InteractiveSupportSection() {
                   <textarea
                     id="support-message"
                     rows={3}
+                    required
+                    minLength={10}
+                    maxLength={5000}
                     placeholder="Describe your product or order enquiry..."
                     value={userMessage}
                     onChange={(e) => setUserMessage(e.target.value)}
@@ -193,12 +237,16 @@ export default function InteractiveSupportSection() {
                   />
                 </div>
 
+                <label className="support-ticket-form__honeypot" aria-hidden="true">
+                  Website <input name="website" tabIndex={-1} autoComplete="off" />
+                </label>
+
                 <div className="modal-actions">
                   <button type="button" className="modal-cancel-btn" onClick={() => setShowModal(false)}>
                     Cancel
                   </button>
-                  <button type="submit" className="modal-submit-btn">
-                    Send Enquiry
+                  <button type="submit" className="modal-submit-btn" disabled={isSubmitting}>
+                    {isSubmitting ? "Submitting..." : "Send Enquiry"}
                   </button>
                 </div>
               </form>

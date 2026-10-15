@@ -4,52 +4,48 @@ import { resolveProductImage } from './image-resolver';
 
 const globalForDb = globalThis as typeof globalThis & {
   sourceAsiaDbPool?: Pool;
+  sourceAsiaEcommerceDbPool?: Pool;
 };
 
-export function getDbPool(): Pool {
-  if (globalForDb.sourceAsiaDbPool) {
-    return globalForDb.sourceAsiaDbPool;
-  }
-
-  const connectionString = process.env.DATABASE_URL;
+function createPool(connectionString: string | undefined, variableName: string): Pool {
   if (!connectionString) {
-    throw new Error("DATABASE_URL is required");
+    throw new Error(`${variableName} is required`);
   }
 
   let databaseUrl: URL;
   try {
     databaseUrl = new URL(connectionString);
   } catch {
-    throw new Error("DATABASE_URL must be a valid PostgreSQL connection URL");
+    throw new Error(`${variableName} must be a valid PostgreSQL connection URL`);
   }
 
   if (databaseUrl.protocol !== 'postgres:' && databaseUrl.protocol !== 'postgresql:') {
-    throw new Error("DATABASE_URL must use the postgres or postgresql protocol");
+    throw new Error(`${variableName} must use the postgres or postgresql protocol`);
   }
 
   const sslMode = databaseUrl.searchParams.get('sslmode');
   const isLocalDatabase = ['localhost', '127.0.0.1', '::1'].includes(databaseUrl.hostname);
   if (sslMode && !['verify-full', 'require', 'disable'].includes(sslMode)) {
-    throw new Error("DATABASE_URL sslmode must be verify-full, require (development only), or disable for local development");
+    throw new Error(`${variableName} sslmode must be verify-full, require (development only), or disable for local development`);
   }
   if (sslMode === 'disable' && (!isLocalDatabase || process.env.NODE_ENV === 'production')) {
     throw new Error("Unencrypted database connections are only allowed for local development");
   }
   if (process.env.NODE_ENV === 'production' && sslMode !== 'verify-full') {
-    throw new Error("Production DATABASE_URL must include sslmode=verify-full");
+    throw new Error(`Production ${variableName} must include sslmode=verify-full`);
   }
 
   let verifiedConnectionString = connectionString;
   if (sslMode === 'require' && process.env.NODE_ENV !== 'production') {
     databaseUrl.searchParams.set('sslmode', 'verify-full');
     verifiedConnectionString = databaseUrl.toString();
-    console.warn("Development DATABASE_URL uses sslmode=require; upgrading the connection to certificate verification.");
+    console.warn(`Development ${variableName} uses sslmode=require; upgrading the connection to certificate verification.`);
   } else if (!sslMode && !isLocalDatabase) {
     databaseUrl.searchParams.set('sslmode', 'verify-full');
     verifiedConnectionString = databaseUrl.toString();
   }
 
-  const pool = new Pool({
+  return new Pool({
     connectionString: verifiedConnectionString,
     ssl: sslMode === 'disable' || (!sslMode && isLocalDatabase)
       ? false
@@ -58,8 +54,49 @@ export function getDbPool(): Pool {
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 10000,
   });
-  globalForDb.sourceAsiaDbPool = pool;
-  return pool;
+}
+
+function assertEcommerceDatabaseIsSeparate(): void {
+  const erpConnectionString = process.env.DATABASE_URL;
+  const ecommerceConnectionString = process.env.ECOMMERCE_DATABASE_URL;
+  if (!erpConnectionString || !ecommerceConnectionString) return;
+
+  let erpUrl: URL;
+  let ecommerceUrl: URL;
+  try {
+    erpUrl = new URL(erpConnectionString);
+    ecommerceUrl = new URL(ecommerceConnectionString);
+  } catch {
+    return;
+  }
+
+  const normalizedPort = (url: URL) => url.port || "5432";
+  const normalizedDatabase = (url: URL) => decodeURIComponent(url.pathname.replace(/^\/+/, ""));
+  if (
+    erpUrl.hostname.toLowerCase() === ecommerceUrl.hostname.toLowerCase() &&
+    normalizedPort(erpUrl) === normalizedPort(ecommerceUrl) &&
+    normalizedDatabase(erpUrl) === normalizedDatabase(ecommerceUrl)
+  ) {
+    throw new Error("ECOMMERCE_DATABASE_URL must point to a different PostgreSQL database than DATABASE_URL");
+  }
+}
+
+export function getDbPool(): Pool {
+  if (!globalForDb.sourceAsiaDbPool) {
+    globalForDb.sourceAsiaDbPool = createPool(process.env.DATABASE_URL, "DATABASE_URL");
+  }
+  return globalForDb.sourceAsiaDbPool;
+}
+
+export function getEcommerceDbPool(): Pool {
+  if (!globalForDb.sourceAsiaEcommerceDbPool) {
+    assertEcommerceDatabaseIsSeparate();
+    globalForDb.sourceAsiaEcommerceDbPool = createPool(
+      process.env.ECOMMERCE_DATABASE_URL,
+      "ECOMMERCE_DATABASE_URL",
+    );
+  }
+  return globalForDb.sourceAsiaEcommerceDbPool;
 }
 
 export async function query<T extends QueryResultRow = QueryResultRow>(
@@ -68,6 +105,13 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
 ) {
   const p = getDbPool();
   return p.query<T>(text, params);
+}
+
+export async function ecommerceQuery<T extends QueryResultRow = QueryResultRow>(
+  text: string,
+  params?: unknown[],
+) {
+  return getEcommerceDbPool().query<T>(text, params);
 }
 
 export const FALLBACK_IMAGE_URL =

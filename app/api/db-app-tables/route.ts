@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDbPool } from "../../lib/db";
+import { getEcommerceDbPool } from "../../lib/db";
 
 export async function GET() {
   if (process.env.NODE_ENV === "production") {
@@ -7,7 +7,7 @@ export async function GET() {
   }
 
   try {
-    const result = await getDbPool().query(
+    const result = await getEcommerceDbPool().query(
       "SELECT table_schema, table_name FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('information_schema', 'pg_catalog', 'drizzle') ORDER BY table_schema, table_name;"
     );
 

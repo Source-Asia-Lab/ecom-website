@@ -245,7 +245,7 @@ export default function Storefront({
         if (filters.outOfStock) params.set("outOfStock", "true");
         if (filters.minPrice) params.set("minPrice", filters.minPrice);
         if (filters.maxPrice) params.set("maxPrice", filters.maxPrice);
-        params.set("limit", "300");
+        params.set("limit", "200");
 
         const res = await fetch(`/api/products?${params.toString()}`);
         if (!res.ok) throw new Error("Failed to fetch products");

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDbPool } from "../../lib/db";
+import { getDbPool, getEcommerceDbPool } from "../../lib/db";
 
 export async function GET() {
   if (process.env.NODE_ENV === "production") {
@@ -7,12 +7,16 @@ export async function GET() {
   }
 
   try {
-    const result = await getDbPool().query("SELECT NOW() AS current_time");
+    const [erpResult, ecommerceResult] = await Promise.all([
+      getDbPool().query("SELECT NOW() AS current_time"),
+      getEcommerceDbPool().query("SELECT NOW() AS current_time"),
+    ]);
 
     return NextResponse.json({
       success: true,
-      message: "PostgreSQL connection successful",
-      databaseTime: result.rows[0].current_time,
+      message: "ERP and e-commerce PostgreSQL connections successful",
+      erpDatabaseTime: erpResult.rows[0].current_time,
+      ecommerceDatabaseTime: ecommerceResult.rows[0].current_time,
     });
   } catch (error) {
     console.error("Database connection error:", error);

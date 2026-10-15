@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { PageContainer } from "../ui";
+import SupportTicketForm from "./SupportTicketForm";
 
 interface FAQItem {
   id: string;
@@ -17,49 +18,49 @@ const FAQS: FAQItem[] = [
     category: "Orders & Delivery",
     question: "How do I track my hardware or bulk order?",
     answer:
-      "Once your order is dispatched, you will receive an SMS and email notification containing your tracking number and logistics partner link. You can also use our Track Order tool on this page by entering your Order ID.",
+      "Tracking details are provided after dispatch. Live carrier tracking is not available in this help center yet. Use the carrier link shared with your dispatch details or contact sales@sourceasia.co.in.",
   },
   {
     id: "faq-2",
     category: "Payments & Invoicing",
     question: "How can I get a GST tax invoice for my business purchase?",
     answer:
-      "All orders processed on Source Asia automatically generate a GST-compliant tax invoice. Your invoice is emailed to your registered address upon dispatch, and can also be requested via sales@sourceasia.co.in by quoting your Order ID.",
+      "The current checkout records an order request and does not yet generate a paid-order invoice. For invoice questions, contact sales@sourceasia.co.in with your order reference.",
   },
   {
     id: "faq-3",
     category: "Returns & Refunds",
     question: "What is the return policy for industrial tools & equipment?",
     answer:
-      "We offer a 7-day return policy for unused hardware items in their original sealed packaging. If you receive a damaged, defective, or incorrect product, please notify customer support within 48 hours for immediate replacement or full refund.",
+      "Report a wrong, damaged, defective, leaking, incorrectly sized, incorrectly dimensioned, or incorrectly supplied product within 48 hours of delivery. Eligibility and resolution depend on the product and evidence. Read the full Returns & Refunds Policy.",
   },
   {
     id: "faq-4",
     category: "Bulk / B2B Orders",
     question: "Do you offer bulk discounts or custom quotes for large orders?",
     answer:
-      "Yes! For bulk procurement or corporate orders, our B2B team provides tiered volume discounts and formal RFQ quotations. Reach out through our B2B contact card or email b2b@sourceasia.co.in.",
+      "For bulk procurement or a custom quote, contact sales@sourceasia.co.in with the products, quantities, and delivery PIN code. Availability and pricing are confirmed by the Source Asia team.",
   },
   {
     id: "faq-5",
     category: "Payments & Invoicing",
     question: "What payment methods are accepted on Source Asia?",
     answer:
-      "We accept Credit & Debit Cards (Visa, Mastercard, RuPay), Net Banking across major banks, UPI (GPay, PhonePe, Paytm), NEFT/RTGS transfers for B2B orders, and Cash on Delivery for eligible pincodes.",
+      "Payment method: Online Payment Only. Cash on Delivery is not available. The current checkout submits an order request and does not yet collect online payment. Available online methods will be shown at checkout when payment is enabled.",
   },
   {
     id: "faq-6",
     category: "Product Support",
     question: "What warranty coverage comes with power tools and machinery?",
     answer:
-      "All power tools, heavy machinery, and electrical equipment sold on Source Asia carry standard manufacturer warranties (ranging from 6 to 24 months). Warranty details are listed on each product specification sheet.",
+      "Warranty coverage varies by product and manufacturer. Check the product information or contact sales@sourceasia.co.in before ordering for the applicable product details.",
   },
   {
     id: "faq-7",
     category: "Account & Login",
     question: "How can I update my business delivery address or company details?",
     answer:
-      "Log into your Source Asia account and navigate to Account Settings > Address Book. You can add multiple delivery locations, warehouse contacts, and updated GST numbers for seamless checkout.",
+      "Google sign-in is available, but address-book and profile editing are not yet supported. Contact sales@sourceasia.co.in to request an update to business or delivery details.",
   },
 ];
 
@@ -148,8 +149,6 @@ export default function SupportClient() {
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedFaq, setExpandedFaq] = useState<string | null>("faq-1");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [trackOrderInput, setTrackOrderInput] = useState("");
-  const [trackStatus, setTrackStatus] = useState<string | null>(null);
 
   const filteredFaqs = FAQS.filter((faq) => {
     const matchesSearch =
@@ -163,17 +162,6 @@ export default function SupportClient() {
 
     return matchesSearch && matchesCategory;
   });
-
-  const handleTrackOrder = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!trackOrderInput.trim()) {
-      setTrackStatus("Please enter a valid Order ID (e.g., SA-98240).");
-      return;
-    }
-    setTrackStatus(
-      `Order ${trackOrderInput.toUpperCase()} is currently in Transit. Expected Delivery: 2-3 Business Days via Express Logistics.`
-    );
-  };
 
   const toggleFaq = (id: string) => {
     setExpandedFaq((prev) => (prev === id ? null : id));
@@ -275,7 +263,7 @@ export default function SupportClient() {
             </div>
             <div className="support-action-body">
               <h3>Track Order</h3>
-              <p>Get live dispatch status for your pending shipments.</p>
+              <p>Review shipment tracking details shared after dispatch.</p>
               <a href="#track-order" className="support-action-btn support-action-btn--secondary">
                 <span>Track Shipment</span>
                 <span className="support-btn-arrow">&darr;</span>
@@ -339,42 +327,16 @@ export default function SupportClient() {
         </PageContainer>
       </section>
 
-      {/* Track Order Quick Tool */}
+      {/* Shipment tracking details are shared after dispatch. */}
       <section id="track-order" className="support-section support-section--accent">
         <PageContainer>
           <div className="support-track-box">
             <div className="support-track-info">
-              <span className="support-eyebrow">EXPRESS LOGISTICS</span>
-              <h2>Track Your Order Status</h2>
-              <p>Enter your Source Asia Order ID to check real-time shipping updates.</p>
+              <span className="support-eyebrow">AFTER DISPATCH</span>
+              <h2>Shipment tracking</h2>
+              <p>Tracking details are provided after dispatch. Live tracking is not available in this help center yet.</p>
             </div>
-            <form className="support-track-form" onSubmit={handleTrackOrder}>
-              <div className="support-track-input-group">
-                <input
-                  type="text"
-                  placeholder="e.g. SA-98240"
-                  className="support-track-input"
-                  value={trackOrderInput}
-                  onChange={(e) => setTrackOrderInput(e.target.value)}
-                />
-                <button type="submit" className="support-track-btn">
-                  Check Status
-                </button>
-              </div>
-              {trackStatus && (
-                <div className="support-track-result" role="status">
-                  <span className="support-track-status-icon" aria-hidden="true">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="16.5" y1="9.4" x2="7.5" y2="4.21" />
-                      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-                      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-                      <line x1="12" y1="22.08" x2="12" y2="12" />
-                    </svg>
-                  </span>
-                  <p>{trackStatus}</p>
-                </div>
-              )}
-            </form>
+            <a className="support-track-btn" href="mailto:sales@sourceasia.co.in?subject=Shipment%20tracking%20request">Contact support</a>
           </div>
         </PageContainer>
       </section>
@@ -404,7 +366,7 @@ export default function SupportClient() {
           <div className="support-faq-list">
             {filteredFaqs.length === 0 ? (
               <div className="support-faq-empty">
-                <p>No matching questions found for "{searchQuery}".</p>
+                <p>No matching questions found for &quot;{searchQuery}&quot;.</p>
                 <button
                   type="button"
                   className="support-action-btn support-action-btn--primary"
@@ -482,9 +444,8 @@ export default function SupportClient() {
               </div>
               <h3>Phone Support</h3>
               <p>Speak directly with our technical support team during business hours.</p>
-              <div className="support-contact-detail">+91 (800) 123-4567</div>
-              <span className="support-contact-hours">Mon – Sat: 9:00 AM – 7:00 PM IST</span>
-              <a href="tel:+918001234567" className="support-contact-cta">
+              <div className="support-contact-detail">+91 98442 23703</div>
+              <a href="tel:+919844223703" className="support-contact-cta">
                 <span>Call Us Now</span>
                 <span className="support-btn-arrow">&rarr;</span>
               </a>
@@ -499,14 +460,19 @@ export default function SupportClient() {
                 </svg>
               </div>
               <h3>B2B / Bulk Enquiry</h3>
-              <p>Get custom volume pricing, formal RFQ quotes & credit account setup.</p>
-              <div className="support-contact-detail">b2b@sourceasia.co.in</div>
-              <a href="mailto:b2b@sourceasia.co.in?subject=B2B%20Bulk%20Order%20Enquiry" className="support-contact-cta">
+              <p>Ask the Source Asia team about a bulk order or product quote.</p>
+              <div className="support-contact-detail">sales@sourceasia.co.in</div>
+              <a href="mailto:sales@sourceasia.co.in?subject=B2B%20Bulk%20Order%20Enquiry" className="support-contact-cta">
                 <span>Request B2B Quote</span>
                 <span className="support-btn-arrow">&rarr;</span>
               </a>
             </div>
           </div>
+          <section className="support-ticket-panel" aria-labelledby="support-ticket-title">
+            <h3 id="support-ticket-title">Submit a support request</h3>
+            <p>Include your order reference and supporting details where applicable.</p>
+            <SupportTicketForm />
+          </section>
         </PageContainer>
       </section>
     </div>

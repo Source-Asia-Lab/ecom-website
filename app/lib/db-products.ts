@@ -1,10 +1,11 @@
-import { query, mapDbRowToProduct, DbProductRow } from "./db";
+import { query, ecommerceQuery, mapDbRowToProduct, DbProductRow } from "./db";
 import type { Product } from "../store/products";
 import { applyDevStorefrontMetadata } from "./dev-storefront-metadata";
 import {
   ECOMMERCE_CATEGORY_NAMES,
   getEcommerceProductTaxonomy,
 } from "../store/category-taxonomy";
+import { getActiveHoldCounts } from "./inventory-reservations";
 
 export const DEFAULT_ACTIVE_CATEGORIES = ECOMMERCE_CATEGORY_NAMES;
 
@@ -82,20 +83,45 @@ export async function getProductsFromDb(options?: {
       return { products: [], total: 0, categories: DEFAULT_ACTIVE_CATEGORIES, brands: [] };
     }
 
-    const conditions: string[] = [
-      "p.is_active = true",
-      `EXISTS (
-        SELECT 1
-        FROM public.ecom_product_catalog published_mapping
-        JOIN public.ecom_categories published_category
-          ON published_category.id = published_mapping.ecom_category_id
-        WHERE published_mapping.product_id = p.id
-          AND published_mapping.is_published = true
-          AND published_category.is_active = true
-      )`,
-    ];
-    const params: unknown[] = [];
-    let paramIndex = 1;
+    const publishedResult = await ecommerceQuery<{
+      product_id: string;
+      category_name: string;
+      sub_category_name: string | null;
+      name_override: string | null;
+      description_override: string | null;
+      price_override: string | number | null;
+      image_url_override: string | null;
+      stock_override: number | null;
+    }>(
+      `SELECT mapping.product_id, category.name AS category_name,
+              type.name AS sub_category_name, mapping.name_override,
+              mapping.description_override, mapping.price_override,
+              mapping.image_url_override, mapping.stock_override
+       FROM public.ecom_product_catalog mapping
+       JOIN public.ecom_categories category ON category.id = mapping.ecom_category_id
+       LEFT JOIN public.ecom_category_types type ON type.id = mapping.ecom_category_type_id
+       WHERE mapping.is_published = true AND category.is_active = true`,
+    );
+    const publishedProductIds = publishedResult.rows.map((row) => row.product_id);
+    if (publishedProductIds.length === 0) {
+      return { products: [], total: 0, categories: DEFAULT_ACTIVE_CATEGORIES, brands: [] };
+    }
+    const activeHolds = await getActiveHoldCounts(publishedProductIds);
+    const catalogByProductId = new Map(
+      publishedResult.rows.map((row) => [row.product_id, row]),
+    );
+    const overrideSearchIds = search
+      ? publishedResult.rows
+          .filter((row) =>
+            row.name_override?.toLowerCase().includes(search.toLowerCase()) ||
+            row.description_override?.toLowerCase().includes(search.toLowerCase())
+          )
+          .map((row) => row.product_id)
+      : [];
+
+    const conditions: string[] = ["p.is_active = true", "p.id = ANY($1::uuid[])"];
+    const params: unknown[] = [publishedProductIds];
+    let paramIndex = 2;
 
     if (developmentProductIds) {
       conditions.push(
@@ -109,10 +135,11 @@ export async function getProductsFromDb(options?: {
     // Search by name, sku, barcode, description
     if (search) {
       conditions.push(
-        `(p.name ILIKE $${paramIndex} OR p.sku ILIKE $${paramIndex} OR p.barcode ILIKE $${paramIndex} OR p.description ILIKE $${paramIndex})`
+        `(p.id = ANY($${paramIndex}::uuid[]) OR p.name ILIKE $${paramIndex + 1} OR p.sku ILIKE $${paramIndex + 1} OR p.barcode ILIKE $${paramIndex + 1} OR p.description ILIKE $${paramIndex + 1})`
       );
+      params.push(overrideSearchIds);
       params.push(`%${search}%`);
-      paramIndex++;
+      paramIndex += 2;
     }
 
     if (productType) {
@@ -147,11 +174,53 @@ export async function getProductsFromDb(options?: {
       ORDER BY ${orderBy}
     `;
     const res = await query<DbProductRow>(selectSql, params);
-    let allProducts = res.rows.map((row) =>
-      applyEcommerceTaxonomy(
-        applyDevStorefrontMetadata(mapDbRowToProduct(row))
-      )
-    );
+    let allProducts = res.rows.map((row) => {
+      const catalogEntry = catalogByProductId.get(row.id);
+      const baseStock = catalogEntry?.stock_override !== null && catalogEntry?.stock_override !== undefined
+        ? Number(catalogEntry.stock_override)
+        : Number(row.stock_quantity || 0);
+      const heldQuantity = activeHolds.get(row.id) ?? 0;
+      const effectiveStock = Math.max(0, baseStock - heldQuantity);
+
+      const catalogRow: DbProductRow = catalogEntry
+        ? {
+            ...row,
+            name: catalogEntry.name_override ?? row.name,
+            description: catalogEntry.description_override ?? row.description,
+            sale_price: catalogEntry.price_override ?? row.sale_price,
+            image_url: catalogEntry.image_url_override ?? row.image_url,
+            category_name: catalogEntry.category_name,
+            sub_category_name: catalogEntry.sub_category_name,
+            stock_quantity: effectiveStock,
+          }
+        : {
+            ...row,
+            stock_quantity: effectiveStock,
+          };
+      const product = applyEcommerceTaxonomy(
+        applyDevStorefrontMetadata(mapDbRowToProduct(catalogRow))
+      );
+      return catalogEntry
+        ? {
+            ...product,
+            category: catalogEntry.category_name || product.category,
+            subcategory: catalogEntry.sub_category_name || product.subcategory,
+            stock: effectiveStock,
+          }
+        : {
+            ...product,
+            stock: effectiveStock,
+          };
+    });
+    if (sortBy === "z-a") {
+      allProducts.sort((a, b) => b.name.localeCompare(a.name));
+    } else if (sortBy === "price-asc") {
+      allProducts.sort((a, b) => a.price - b.price || a.name.localeCompare(b.name));
+    } else if (sortBy === "price-desc") {
+      allProducts.sort((a, b) => b.price - a.price || a.name.localeCompare(b.name));
+    } else {
+      allProducts.sort((a, b) => a.name.localeCompare(b.name));
+    }
 
     // 1. Filter by category (OR logic if multiple comma-separated categories)
     const categoryList = rawCategory
@@ -223,6 +292,38 @@ export async function getProductBySlugFromDb(slug: string): Promise<Product | nu
       return null;
     }
 
+    const publishedResult = await ecommerceQuery<{
+      product_id: string;
+      category_name: string;
+      sub_category_name: string | null;
+      name_override: string | null;
+      description_override: string | null;
+      price_override: string | number | null;
+      image_url_override: string | null;
+      stock_override: number | null;
+    }>(
+      `SELECT mapping.product_id, category.name AS category_name,
+              type.name AS sub_category_name, mapping.name_override,
+              mapping.description_override, mapping.price_override,
+              mapping.image_url_override, mapping.stock_override
+       FROM public.ecom_product_catalog mapping
+       JOIN public.ecom_categories category ON category.id = mapping.ecom_category_id
+       LEFT JOIN public.ecom_category_types type ON type.id = mapping.ecom_category_type_id
+       WHERE mapping.is_published = true AND category.is_active = true`,
+    );
+    const publishedProductIds = publishedResult.rows.map((row) => row.product_id);
+    if (publishedProductIds.length === 0) return null;
+    const activeHolds = await getActiveHoldCounts(publishedProductIds);
+    const catalogByProductId = new Map(
+      publishedResult.rows.map((row) => [row.product_id, row]),
+    );
+    const overrideSearchIds = publishedResult.rows
+      .filter((row) =>
+        row.name_override?.toLowerCase().includes(slug.toLowerCase()) ||
+        row.description_override?.toLowerCase().includes(slug.toLowerCase())
+      )
+      .map((row) => row.product_id);
+
     const sql = `
       SELECT p.*, c.name as category_name, COALESCE(ibs.stock_quantity, 0) as stock_quantity
       FROM public.products p
@@ -232,32 +333,58 @@ export async function getProductBySlugFromDb(slug: string): Promise<Product | nu
         FROM public.inventory_bin_stock
         GROUP BY product_id
       ) ibs ON p.id = ibs.product_id
-      WHERE (p.id::text = $1 OR p.sku = $1 OR p.name ILIKE $1)
+      WHERE (p.id::text = $1 OR p.sku = $1 OR p.name ILIKE $1 OR p.id = ANY($3::uuid[]))
         AND p.is_active = true
-        AND EXISTS (
-          SELECT 1
-          FROM public.ecom_product_catalog published_mapping
-          JOIN public.ecom_categories published_category
-            ON published_category.id = published_mapping.ecom_category_id
-          WHERE published_mapping.product_id = p.id
-            AND published_mapping.is_published = true
-            AND published_category.is_active = true
-        )
-      ${developmentProductIds ? "AND (p.id = ANY($2::uuid[]) OR p.sku = ANY($3::text[]))" : ""}
+        AND p.id = ANY($2::uuid[])
+      ${developmentProductIds ? "AND (p.id = ANY($4::uuid[]) OR p.sku = ANY($5::text[]))" : ""}
       LIMIT 1
     `;
     const params = developmentProductIds
-      ? [slug, developmentProductIds, developmentProductSkus]
-      : [slug];
+      ? [slug, publishedProductIds, overrideSearchIds, developmentProductIds, developmentProductSkus]
+      : [slug, publishedProductIds, overrideSearchIds];
     const res = await query<DbProductRow>(sql, params);
 
     if (res.rows.length === 0) {
       return null;
     }
 
-    return applyEcommerceTaxonomy(
-      applyDevStorefrontMetadata(mapDbRowToProduct(res.rows[0]))
+    const row = res.rows[0];
+    const catalogEntry = catalogByProductId.get(row.id);
+    const baseStock = catalogEntry?.stock_override !== null && catalogEntry?.stock_override !== undefined
+      ? Number(catalogEntry.stock_override)
+      : Number(row.stock_quantity || 0);
+    const heldQuantity = activeHolds.get(row.id) ?? 0;
+    const effectiveStock = Math.max(0, baseStock - heldQuantity);
+
+    const catalogRow: DbProductRow = catalogEntry
+      ? {
+          ...row,
+          name: catalogEntry.name_override ?? row.name,
+          description: catalogEntry.description_override ?? row.description,
+          sale_price: catalogEntry.price_override ?? row.sale_price,
+          image_url: catalogEntry.image_url_override ?? row.image_url,
+          category_name: catalogEntry.category_name,
+          sub_category_name: catalogEntry.sub_category_name,
+          stock_quantity: effectiveStock,
+        }
+      : {
+          ...row,
+          stock_quantity: effectiveStock,
+        };
+    const product = applyEcommerceTaxonomy(
+      applyDevStorefrontMetadata(mapDbRowToProduct(catalogRow))
     );
+    return catalogEntry
+      ? {
+          ...product,
+          category: catalogEntry.category_name || product.category,
+          subcategory: catalogEntry.sub_category_name || product.subcategory,
+          stock: effectiveStock,
+        }
+      : {
+          ...product,
+          stock: effectiveStock,
+        };
   } catch (err) {
     console.error(`Error fetching product ${slug} from DB:`, err);
     throw err;

@@ -1,7 +1,7 @@
 -- ==============================================================================
 -- MIGRATION: 001_create_ecom_tables.sql
 -- DESCRIPTION: Create isolated ecommerce domain tables for Source Asia Storefront
--- TARGET DATABASE: Development PostgreSQL Database (erp_sales)
+-- TARGET DATABASE: Dedicated Source Asia e-commerce PostgreSQL database
 -- ==============================================================================
 
 -- 1. ECOMMERCE CUSTOMERS TABLE

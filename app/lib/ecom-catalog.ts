@@ -12,7 +12,7 @@
  * 4. Resolves product data dynamically via app/lib/erp-readonly.ts.
  */
 
-import { query } from "./db";
+import { ecommerceQuery } from "./db";
 import { getErpProductById, getErpProductInventory, type ErpProductRow } from "./erp-readonly";
 
 export interface EcomCategoryRow {
@@ -67,7 +67,7 @@ export async function getEcommerceCategories(): Promise<EcomCategoryRow[]> {
     WHERE is_active = true
     ORDER BY display_order ASC, name ASC
   `;
-  const result = await query<EcomCategoryRow>(sql);
+  const result = await ecommerceQuery<EcomCategoryRow>(sql);
   return result.rows;
 }
 
@@ -85,7 +85,7 @@ export async function getEcommerceCategoryTypes(categoryId: string): Promise<Eco
     WHERE ecom_category_id = $1 AND is_active = true
     ORDER BY display_order ASC, name ASC
   `;
-  const result = await query<EcomCategoryTypeRow>(sql, [categoryId.trim()]);
+  const result = await ecommerceQuery<EcomCategoryTypeRow>(sql, [categoryId.trim()]);
   return result.rows;
 }
 
@@ -99,7 +99,7 @@ export async function getPublishedEcommerceProducts(): Promise<PublishedEcommerc
     WHERE is_published = true
     ORDER BY display_order ASC, created_at DESC
   `;
-  const result = await query<EcomProductCatalogRow>(sql);
+  const result = await ecommerceQuery<EcomProductCatalogRow>(sql);
 
   const publishedProducts: PublishedEcommerceProduct[] = [];
 
@@ -132,7 +132,7 @@ export async function getPublishedEcommerceProductsByCategory(categoryId: string
     WHERE ecom_category_id = $1 AND is_published = true
     ORDER BY display_order ASC, created_at DESC
   `;
-  const result = await query<EcomProductCatalogRow>(sql, [categoryId.trim()]);
+  const result = await ecommerceQuery<EcomProductCatalogRow>(sql, [categoryId.trim()]);
 
   const publishedProducts: PublishedEcommerceProduct[] = [];
 
@@ -165,7 +165,7 @@ export async function getPublishedEcommerceProductsByType(typeId: string): Promi
     WHERE ecom_category_type_id = $1 AND is_published = true
     ORDER BY display_order ASC, created_at DESC
   `;
-  const result = await query<EcomProductCatalogRow>(sql, [typeId.trim()]);
+  const result = await ecommerceQuery<EcomProductCatalogRow>(sql, [typeId.trim()]);
 
   const publishedProducts: PublishedEcommerceProduct[] = [];
 

@@ -1,7 +1,7 @@
 -- ==============================================================================
 -- MIGRATION: 002_create_ecom_catalog.sql
 -- DESCRIPTION: Create ecommerce catalog tables and seed initial ecommerce taxonomy
--- TARGET DATABASE: Development PostgreSQL Database (erp_sales)
+-- TARGET DATABASE: Dedicated Source Asia e-commerce PostgreSQL database
 -- ==============================================================================
 
 -- 1. ECOMMERCE CATEGORIES TABLE

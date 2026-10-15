@@ -13,8 +13,9 @@
  * 4. The ERP product is active (products.is_active = TRUE).
  */
 
-import { query } from "./db";
+import { ecommerceQuery } from "./db";
 import { getErpProductById, getErpProductInventory, type ErpProductRow } from "./erp-readonly";
+import { getActiveHoldCounts } from "./inventory-reservations";
 
 export interface EcommerceCategoryRef {
   id: string;
@@ -78,6 +79,14 @@ export interface PublishedEcommerceProductResponse {
   isPublished: boolean;
 }
 
+interface EcommerceProductOverrides {
+  name_override: string | null;
+  description_override: string | null;
+  price_override: string | number | null;
+  image_url_override: string | null;
+  stock_override?: number | null;
+}
+
 function calculateAvailability(quantity: number): ProductAvailability {
   if (!quantity || quantity <= 0) {
     return "out_of_stock";
@@ -90,29 +99,37 @@ function mapToPublishedProductResponse(
   catRef: EcommerceCategoryRef | null,
   typeRef: EcommerceCategoryTypeRef | null,
   stockQty: number,
-  isPublished: boolean
+  isPublished: boolean,
+  overrides: EcommerceProductOverrides,
+  activeHoldQty = 0,
 ): PublishedEcommerceProductResponse {
-  const numericSalePrice = erpProduct.sale_price !== null && erpProduct.sale_price !== undefined
-    ? Number(erpProduct.sale_price)
+  const salePrice = overrides.price_override ?? erpProduct.sale_price;
+  const numericSalePrice = salePrice !== null && salePrice !== undefined
+    ? Number(salePrice)
     : 0;
 
   const hasValidPrice = Number.isFinite(numericSalePrice) && numericSalePrice > 0;
   const price = hasValidPrice ? numericSalePrice : null;
   const isPriceOnRequest = !hasValidPrice;
 
+  const baseStock = overrides.stock_override !== null && overrides.stock_override !== undefined
+    ? Number(overrides.stock_override)
+    : stockQty;
+  const effectiveStock = Math.max(0, baseStock - activeHoldQty);
+
   return {
     id: erpProduct.id,
-    name: erpProduct.name,
+    name: overrides.name_override ?? erpProduct.name,
     sku: erpProduct.sku,
     barcode: erpProduct.barcode,
-    description: erpProduct.description,
+    description: overrides.description_override ?? erpProduct.description,
     category: catRef,
     type: typeRef,
     price,
     isPriceOnRequest,
-    stockQuantity: Math.max(0, stockQty),
-    availability: calculateAvailability(stockQty),
-    imageUrl: erpProduct.image_url,
+    stockQuantity: effectiveStock,
+    availability: calculateAvailability(effectiveStock),
+    imageUrl: overrides.image_url_override ?? erpProduct.image_url,
     productType: erpProduct.product_type,
     weight: erpProduct.weight !== null ? Number(erpProduct.weight) : null,
     volume: erpProduct.volume !== null ? Number(erpProduct.volume) : null,
@@ -160,6 +177,11 @@ export async function getPublishedEcommerceProducts(options?: {
       m.ecom_category_id,
       m.ecom_category_type_id,
       m.is_published,
+      m.name_override,
+      m.description_override,
+      m.price_override,
+      m.image_url_override,
+      m.stock_override,
       c.id AS category_id,
       c.name AS category_name,
       c.slug AS category_slug,
@@ -173,12 +195,17 @@ export async function getPublishedEcommerceProducts(options?: {
     ORDER BY m.display_order ASC, m.created_at DESC
   `;
 
-  const result = await query<{
+  const result = await ecommerceQuery<{
     mapping_id: string;
     product_id: string;
     ecom_category_id: string;
     ecom_category_type_id: string | null;
     is_published: boolean;
+    name_override: string | null;
+    description_override: string | null;
+    price_override: string | number | null;
+    image_url_override: string | null;
+    stock_override: number | null;
     category_id: string;
     category_name: string;
     category_slug: string;
@@ -187,6 +214,8 @@ export async function getPublishedEcommerceProducts(options?: {
     type_slug: string | null;
   }>(sql, params);
 
+  const productIds = result.rows.map((row) => row.product_id);
+  const activeHolds = await getActiveHoldCounts(productIds);
   const productsList: PublishedEcommerceProductResponse[] = [];
 
   for (const row of result.rows) {
@@ -200,6 +229,8 @@ export async function getPublishedEcommerceProducts(options?: {
       const match =
         erpProduct.name.toLowerCase().includes(q) ||
         erpProduct.sku.toLowerCase().includes(q) ||
+        row.name_override?.toLowerCase().includes(q) ||
+        row.description_override?.toLowerCase().includes(q) ||
         (erpProduct.barcode && erpProduct.barcode.toLowerCase().includes(q)) ||
         (erpProduct.description && erpProduct.description.toLowerCase().includes(q));
 
@@ -220,13 +251,17 @@ export async function getPublishedEcommerceProducts(options?: {
       ? { id: row.type_id, name: row.type_name, slug: row.type_slug }
       : null;
 
+    const heldQty = activeHolds.get(row.product_id) ?? 0;
+
     productsList.push(
       mapToPublishedProductResponse(
         erpProduct,
         catRef,
         typeRef,
         inventory.total_quantity,
-        row.is_published
+        row.is_published,
+        row,
+        heldQty,
       )
     );
   }
@@ -253,6 +288,11 @@ export async function getPublishedEcommerceProductById(productId: string): Promi
       m.ecom_category_id,
       m.ecom_category_type_id,
       m.is_published,
+      m.name_override,
+      m.description_override,
+      m.price_override,
+      m.image_url_override,
+      m.stock_override,
       c.id AS category_id,
       c.name AS category_name,
       c.slug AS category_slug,
@@ -266,12 +306,17 @@ export async function getPublishedEcommerceProductById(productId: string): Promi
     LIMIT 1
   `;
 
-  const result = await query<{
+  const result = await ecommerceQuery<{
     mapping_id: string;
     product_id: string;
     ecom_category_id: string;
     ecom_category_type_id: string | null;
     is_published: boolean;
+    name_override: string | null;
+    description_override: string | null;
+    price_override: string | number | null;
+    image_url_override: string | null;
+    stock_override: number | null;
     category_id: string;
     category_name: string;
     category_slug: string;
@@ -291,6 +336,8 @@ export async function getPublishedEcommerceProductById(productId: string): Promi
   }
 
   const inventory = await getErpProductInventory(row.product_id);
+  const activeHolds = await getActiveHoldCounts([row.product_id]);
+  const heldQty = activeHolds.get(row.product_id) ?? 0;
 
   const catRef: EcommerceCategoryRef = {
     id: row.category_id,
@@ -307,7 +354,9 @@ export async function getPublishedEcommerceProductById(productId: string): Promi
     catRef,
     typeRef,
     inventory.total_quantity,
-    row.is_published
+    row.is_published,
+    row,
+    heldQty,
   );
 }
 
@@ -331,7 +380,7 @@ export async function getPublishedEcommerceCategories(): Promise<EcommerceCatego
     ORDER BY display_order ASC, name ASC
   `;
 
-  const result = await query<EcommerceCategory>(sql);
+  const result = await ecommerceQuery<EcommerceCategory>(sql);
   return result.rows;
 }
 
@@ -360,6 +409,6 @@ export async function getPublishedEcommerceCategoryTypes(categoryId: string): Pr
     ORDER BY display_order ASC, name ASC
   `;
 
-  const result = await query<EcommerceCategoryType>(sql, [categoryId.trim()]);
+  const result = await ecommerceQuery<EcommerceCategoryType>(sql, [categoryId.trim()]);
   return result.rows;
 }

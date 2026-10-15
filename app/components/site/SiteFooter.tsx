@@ -122,6 +122,11 @@ export default function SiteFooter() {
                 <Link href="/">Home</Link>
                 <Link href="/store">Products Store</Link>
                 <Link href="/support">Support & Help</Link>
+                <Link href="/shipping">Shipping</Link>
+                <Link href="/returns-refunds">Returns & Refunds</Link>
+                <Link href="/payment">Payment</Link>
+                <Link href="/privacy">Privacy</Link>
+                <Link href="/terms">Terms</Link>
               </nav>
             </div>
           </div>
@@ -134,6 +139,8 @@ export default function SiteFooter() {
           </p>
           <div className="source-footer__legal">
             <Link href="/support">Support</Link>
+            <Link href="/privacy">Privacy</Link>
+            <Link href="/terms">Terms</Link>
             <Link href="/store">Catalog</Link>
           </div>
         </div>
