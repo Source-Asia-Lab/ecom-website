@@ -26,6 +26,21 @@ export default function AccountModal({ isOpen, onClose }: AccountModalProps) {
   const [ordersError, setOrdersError] = useState("");
   const [authError, setAuthError] = useState("");
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [googleConfigured, setGoogleConfigured] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    // Check which providers are enabled so we can show a helpful message
+    // when Google sign-in has not been configured yet.
+    const controller = new AbortController();
+    fetch("/api/auth/providers", { signal: controller.signal })
+      .then(async (response) => {
+        const providers = (await response.json()) as Record<string, unknown>;
+        setGoogleConfigured(Boolean(providers?.google));
+      })
+      .catch(() => controller.signal.aborted || setGoogleConfigured(null));
+    return () => controller.abort();
+  }, [isOpen]);
 
   useEffect(() => {
     const email = session?.user?.email;
@@ -136,11 +151,17 @@ export default function AccountModal({ isOpen, onClose }: AccountModalProps) {
           <div className="account-form">
             <p>Use your verified Google account to sign in or create your customer account.</p>
             {authError && <p className="account-notice" role="alert">{authError}</p>}
+            {googleConfigured === false && (
+              <p className="account-notice" role="status">
+                Google sign-in is not configured on this deployment yet. Please try again later or
+                continue as a guest — you can claim your guest orders once sign-in is available.
+              </p>
+            )}
             <button
               type="button"
               onClick={handleGoogleSignIn}
               className="google-auth-btn"
-              disabled={isSigningIn}
+              disabled={isSigningIn || googleConfigured === false}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
