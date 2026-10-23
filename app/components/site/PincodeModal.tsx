@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useId, useCallback } from "react";
-import { useDeliveryStore, DeliveryLocationDetails } from "../../store/delivery-store";
+import { useDeliveryStore } from "../../store/delivery-store";
 
 export interface PostalResult {
   pincode: string;
@@ -40,15 +40,16 @@ export default function PincodeModal({
   // Synchronize initial pincode when modal opens
   useEffect(() => {
     if (isOpen) {
-      const activeCode = currentPincode || storePincode || "";
-      setInputVal(activeCode);
-      setErrorMsg("");
-      setResults([]);
-      setSearchedQuery("");
-      // Auto focus input
-      setTimeout(() => {
+      // Defer state sync past the render pass to avoid cascading renders.
+      const timer = setTimeout(() => {
+        const activeCode = currentPincode || storePincode || "";
+        setInputVal(activeCode);
+        setErrorMsg("");
+        setResults([]);
+        setSearchedQuery("");
         inputRef.current?.focus();
       }, 50);
+      return () => clearTimeout(timer);
     }
   }, [isOpen, currentPincode, storePincode]);
 
@@ -133,9 +134,11 @@ export default function PincodeModal({
     const trimmed = inputVal.trim();
 
     if (trimmed.length < 3) {
-      setResults([]);
-      setIsLoading(false);
-      return;
+      const timer = setTimeout(() => {
+        setResults([]);
+        setIsLoading(false);
+      }, 0);
+      return () => clearTimeout(timer);
     }
 
     const timer = setTimeout(() => {

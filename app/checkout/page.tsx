@@ -6,6 +6,7 @@ import { LoadingState, PageContainer, TextLink } from "../components/ui";
 import SiteFooter from "../components/site/SiteFooter";
 import SiteHeader from "../components/site/SiteHeader";
 import { resolveCartLines, useCartStore } from "../store/cart-store";
+import { stepStates } from "../lib/delivery-status";
 import { formatPrice } from "../store/products";
 import {
   INDIAN_STATES,
@@ -121,8 +122,8 @@ function DummyUPIQRCode({ upiId, amount, name }: { upiId: string; amount: number
         <span style={{ fontWeight: 700, fontSize: "16px", color: "#1e293b", letterSpacing: "-0.02em" }}>
           {name || "SOURCE ASIA"}
         </span>
-        <span style={{ fontSize: "11px", background: "#f1f5f9", padding: "2px 8px", borderRadius: "12px", color: "#475569" }}>
-          UPI TEST
+        <span style={{ fontSize: "11px", background: "#fef3c7", padding: "2px 8px", borderRadius: "12px", color: "#92400e", fontWeight: 700 }}>
+          TEST PAYMENT — NOT A REAL PAYMENT
         </span>
       </div>
 
@@ -171,8 +172,8 @@ function DummyUPIQRCode({ upiId, amount, name }: { upiId: string; amount: number
       <div style={{ fontSize: "12px", color: "#64748b", marginTop: "4px" }}>
         UPI ID: {upiId}
       </div>
-      <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "8px" }}>
-        Scan with Google Pay, PhonePe, Paytm, or BHIM
+      <div style={{ fontSize: "11px", color: "#b45309", marginTop: "8px", fontWeight: 600 }}>
+        Development/test only. This QR is a static placeholder and does not collect money.
       </div>
     </div>
   );
@@ -224,6 +225,14 @@ export default function CheckoutPage() {
   const [paymentStatus, setPaymentStatus] = useState<"PENDING" | "PAID" | "EXPIRED">("PENDING");
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState<number>(600); // 10 minutes
+  const [paymentTab, setPaymentTab] = useState<"razorpay" | "bank">("razorpay");
+  const [bankTransfer, setBankTransfer] = useState<{
+    transferReference: string;
+    submissionToken: string;
+    bankAccount: { accountName: string; accountNumber: string; ifscCode: string; bankName: string; branch: string };
+  } | null>(null);
+  const [bankUtr, setBankUtr] = useState("");
+  const [bankSubmitState, setBankSubmitState] = useState<"idle" | "submitted">("idle");
 
   const subtotal = lines.reduce(
     (total, line) => total + line.product.price * line.quantity,
@@ -484,6 +493,66 @@ export default function CheckoutPage() {
     }
   };
 
+  const handleLoadBankTransfer = async () => {
+    if (!orderData) return;
+    setPaymentLoading(true);
+    try {
+      const res = await fetch("/api/checkout/bank-transfer/order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderNumber: orderData.orderNumber,
+          customerEmail: values.email,
+          customerPhone: values.phone,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setBankTransfer(data);
+      } else {
+        setFeedback(data.error || "Bank transfer is not available for this order.");
+      }
+    } catch {
+      setFeedback("Could not load bank transfer details.");
+    } finally {
+      setPaymentLoading(false);
+    }
+  };
+
+  const handleBankUtrSubmit = async () => {
+    if (!orderData || !bankTransfer) return;
+    const trimmedUtr = bankUtr.trim().toUpperCase();
+    if (!/^[A-Z0-9]{12}$/.test(trimmedUtr)) {
+      setFeedback("UTR must be exactly 12 letters/numbers as printed on your bank receipt.");
+      return;
+    }
+    setPaymentLoading(true);
+    try {
+      const res = await fetch("/api/checkout/bank-transfer/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderNumber: orderData.orderNumber,
+          transferReference: bankTransfer.transferReference,
+          utr: trimmedUtr,
+          checksum: bankTransfer.submissionToken,
+          customerEmail: values.email,
+          customerPhone: values.phone,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setBankSubmitState("submitted");
+      } else {
+        setFeedback(data.error || "UTR submission failed.");
+      }
+    } catch {
+      setFeedback("Could not submit UTR. Please try again.");
+    } finally {
+      setPaymentLoading(false);
+    }
+  };
+
   const minutes = Math.floor(secondsRemaining / 60);
   const seconds = secondsRemaining % 60;
   const timeDisplay = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
@@ -548,13 +617,7 @@ export default function CheckoutPage() {
                     Fulfillment Progress
                   </h3>
                   <div style={{ display: "flex", justifyContent: "space-between", position: "relative" }}>
-                    {[
-                      { label: "Confirmed", done: true },
-                      { label: "Processing", done: false },
-                      { label: "Packaged", done: false },
-                      { label: "In Transit", done: false },
-                      { label: "Delivered", done: false },
-                    ].map((step, idx) => (
+                    {stepStates("CONFIRMED").map((step, idx) => (
                       <div key={step.label} style={{ textAlign: "center", flex: 1 }}>
                         <div style={{
                           width: "28px",
@@ -582,11 +645,10 @@ export default function CheckoutPage() {
                 <div style={{ display: "flex", gap: "16px", justifyContent: "center" }}>
                   <Link
                     className="checkout-primary"
-                    href={`/api/orders/${orderData.orderNumber}/track`}
-                    target="_blank"
+                    href={`/track/${orderData.orderNumber}`}
                     style={{ background: "#16a34a" }}
                   >
-                    View Shipment Tracking JSON
+                    Track your order
                   </Link>
                   <Link className="checkout-primary" href="/store" style={{ background: "#0f172a" }}>
                     Continue Shopping
@@ -655,11 +717,93 @@ export default function CheckoutPage() {
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <span style={{ fontSize: "12px", background: "#f8fafc", padding: "4px 8px", borderRadius: "6px", color: "#64748b" }}>
-                      Gateway: Razorpay Test / UPI
+                      {paymentTab === "razorpay" ? "Gateway: Razorpay Test / UPI" : "Bank Transfer (NEFT/RTGS/IMPS)"}
                     </span>
                   </div>
                 </div>
 
+                {/* Payment method tabs */}
+                <div style={{ display: "flex", gap: "8px", marginBottom: "20px" }}>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentTab("razorpay")}
+                    style={{
+                      flex: 1, padding: "10px", borderRadius: "10px", cursor: "pointer", fontSize: "13px", fontWeight: 600,
+                      border: paymentTab === "razorpay" ? "2px solid #0284c7" : "1px solid #e2e8f0",
+                      background: paymentTab === "razorpay" ? "#e0f2fe" : "#ffffff", color: paymentTab === "razorpay" ? "#075985" : "#475569",
+                    }}
+                  >
+                    UPI / Card (Razorpay)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setPaymentTab("bank"); if (!bankTransfer) void handleLoadBankTransfer(); }}
+                    style={{
+                      flex: 1, padding: "10px", borderRadius: "10px", cursor: "pointer", fontSize: "13px", fontWeight: 600,
+                      border: paymentTab === "bank" ? "2px solid #0284c7" : "1px solid #e2e8f0",
+                      background: paymentTab === "bank" ? "#e0f2fe" : "#ffffff", color: paymentTab === "bank" ? "#075985" : "#475569",
+                    }}
+                  >
+                    Bank Transfer (NEFT/RTGS/IMPS)
+                  </button>
+                </div>
+
+                {paymentTab === "bank" && (
+                  <div style={{ marginBottom: "24px", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "20px" }}>
+                    {bankSubmitState === "submitted" ? (
+                      <div style={{ textAlign: "center" }}>
+                        <h3 style={{ fontSize: "15px", color: "#166534", marginBottom: "8px" }}>✓ UTR submitted</h3>
+                        <p style={{ fontSize: "13px", color: "#475569" }}>
+                          We received UTR <strong>{bankUtr.toUpperCase()}</strong>. Your order will be confirmed after our
+                          staff verify the payment (usually within 1 business day). You can close this page — we have your order.
+                        </p>
+                      </div>
+                    ) : !bankTransfer ? (
+                      <p style={{ fontSize: "13px", color: "#64748b", textAlign: "center" }}>
+                        {paymentLoading ? "Loading bank details..." : "Bank transfer is not available right now."}
+                      </p>
+                    ) : (
+                      <>
+                        <h3 style={{ fontSize: "15px", fontWeight: 700, color: "#0f172a", marginBottom: "12px" }}>
+                          Transfer ₹{Number(orderData.total || orderData.subtotal).toFixed(2)} to:
+                        </h3>
+                        <div style={{ fontSize: "13px", lineHeight: 1.8, color: "#334155", background: "#f8fafc", padding: "14px", borderRadius: "10px" }}>
+                          <div><strong>Beneficiary:</strong> {bankTransfer.bankAccount.accountName}</div>
+                          <div><strong>Account number:</strong> {bankTransfer.bankAccount.accountNumber}</div>
+                          <div><strong>IFSC:</strong> {bankTransfer.bankAccount.ifscCode}</div>
+                          <div><strong>Bank:</strong> {bankTransfer.bankAccount.bankName}{bankTransfer.bankAccount.branch ? `, ${bankTransfer.bankAccount.branch}` : ""}</div>
+                          <div><strong>Payment reference (quote this):</strong> {bankTransfer.transferReference}</div>
+                        </div>
+                        <label style={{ display: "block", marginTop: "16px", fontSize: "13px", color: "#334155" }}>
+                          <span style={{ display: "block", marginBottom: "6px", fontWeight: 600 }}>UTR / Transaction reference (12 characters):</span>
+                          <input
+                            className="ui-input"
+                            value={bankUtr}
+                            onChange={(e) => setBankUtr(e.target.value.toUpperCase())}
+                            maxLength={12}
+                            placeholder="e.g. N123456789012"
+                            style={{ letterSpacing: "1px" }}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className="checkout-primary"
+                          disabled={paymentLoading || bankUtr.trim().length !== 12}
+                          onClick={() => void handleBankUtrSubmit()}
+                          style={{ width: "100%", maxWidth: "340px", display: "block", margin: "16px auto 0" }}
+                        >
+                          {paymentLoading ? "Submitting..." : "Submit UTR for verification"}
+                        </button>
+                        <p style={{ fontSize: "12px", color: "#94a3b8", marginTop: "10px", textAlign: "center" }}>
+                          Our staff verify the transfer against the bank statement before confirming your order. Nothing is auto-confirmed.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {paymentTab === "razorpay" && (
+                <>
                 {/* Simulated UPI QR Section */}
                 <div style={{ marginBottom: "24px" }}>
                   <DummyUPIQRCode
@@ -692,6 +836,8 @@ export default function CheckoutPage() {
                     Development Test Mode: One-click simulation confirms order, transitions status to CONFIRMED / PAID, and commits inventory reservations.
                   </p>
                 </div>
+                </>
+                )}
               </div>
             )}
           </PageContainer>

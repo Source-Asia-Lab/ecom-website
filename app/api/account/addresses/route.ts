@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
     await client.query("BEGIN");
 
     // Ensure customer exists
-    let customerResult = await client.query<{ id: string }>(
+    const customerResult = await client.query<{ id: string }>(
       "SELECT id FROM public.ecom_customers WHERE LOWER(email) = $1",
       [email],
     );

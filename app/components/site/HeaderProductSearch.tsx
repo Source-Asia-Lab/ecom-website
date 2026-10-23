@@ -21,8 +21,8 @@ export default function HeaderProductSearch({
 
   useEffect(() => {
     if (!search.trim()) {
-      setSuggestions([]);
-      return;
+      const timer = setTimeout(() => setSuggestions([]), 0);
+      return () => clearTimeout(timer);
     }
 
     let isMounted = true;
@@ -97,6 +97,7 @@ export default function HeaderProductSearch({
           onFocus={() => setIsOpen(true)}
           aria-label="Search products"
           aria-autocomplete="list"
+          role="combobox"
           aria-expanded={isOpen && search.trim().length > 0}
           aria-controls="header-search-suggestions"
           autoComplete="off"

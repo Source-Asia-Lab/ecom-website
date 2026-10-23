@@ -75,7 +75,7 @@ export default function ReviewsRibbon() {
                       </span>
                     </div>
 
-                    <p className="review-card__text">"{review.text}"</p>
+                    <p className="review-card__text">&ldquo;{review.text}&rdquo;</p>
 
                     <div className="review-card__author">
                       <div className="review-card__avatar">

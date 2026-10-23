@@ -1,396 +1,441 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { after, before, beforeEach, describe, test } from "node:test";
+import type { Pool, PoolClient } from "pg";
+import { NextRequest } from "next/server";
+import { getDbPool, getEcommerceDbPool } from "./db";
 import {
-  getValidatedTestDatabaseUrl,
-  getTestEcommerceDbPool,
-  closeTestEcommerceDbPool,
-  applyMigrationsToTestDatabase,
-  resetTestDatabaseTables,
+  applyMigrationsToTestDatabase, closeTestEcommerceDbPool, getTestEcommerceDbPool,
+  getValidatedTestDatabaseUrl, preflightTestDatabase, resetTestDatabaseTables,
 } from "./test-database";
+import { createOrderRequestHandler } from "./order-request-service";
 import { linkGuestOrdersToCustomer } from "./account-linking";
 import { processPaymentConfirmationTransaction } from "./razorpay-service";
+import { verifyBankTransferTransaction } from "./bank-transfer-verification";
+import { generateTransferReference, isValidUtr } from "./bank-transfer-service";
+import { processStaffOrderStatusTransition } from "../api/admin/orders/route";
 
-// Check if a dedicated disposable test database URL is available
-const isTestDatabaseConfigured = Boolean(process.env.ECOMMERCE_TEST_DATABASE_URL?.trim());
+// All clients, including the product-data reader, use the same verified test pool.
+// No fetch/SQL mocks, application database pools, or gateway requests are used.
+const syntheticDomain = "sourceasia-integration.invalid";
+let pool: Pool;
+let guard: PoolClient | undefined;
+let prepared = false;
+let categoryId: string;
+let migrations: string[] = [];
 
-test("PostgreSQL Integration: Disposable test database execution gate", (t) => {
-  if (!isTestDatabaseConfigured) {
-    t.skip(
-      "SKIPPED: ECOMMERCE_TEST_DATABASE_URL is not set. Genuine PostgreSQL integration tests require a dedicated disposable test database (e.g. sourceasia_ecom_test).",
-    );
-    return;
-  }
+function buyer(email = `buyer-${randomUUID()}@${syntheticDomain}`) {
+  return { companyName: "Integration Synthetic Company", contactPerson: "Integration Buyer", email,
+    phone: "9999999999", gstin: "", shippingAddress: "Synthetic test address, never deliver",
+    billingAddress: "Synthetic test address, never deliver", state: "Karnataka", poNumber: "INTEGRATION" };
+}
 
-  // Validate that the URL strictly passes safety guards
-  const url = getValidatedTestDatabaseUrl();
-  assert.ok(url.length > 0);
+const submitOrder = createOrderRequestHandler({
+  getEcommercePool: () => pool,
+  getProductPool: () => pool,
+  getAuthenticatedEmail: async () => null, // Explicit guest context; no OAuth/network calls.
 });
 
-// The following genuine integration tests execute ONLY when a dedicated disposable database is provided
-if (isTestDatabaseConfigured) {
-  test("1. PostgreSQL Integration: Migrations apply cleanly to disposable test database", async () => {
-    const pool = getTestEcommerceDbPool();
-    const applied = await applyMigrationsToTestDatabase(pool);
-    assert.ok(applied.length >= 7, "All migrations 001-007 must apply successfully");
-    await resetTestDatabaseTables(pool);
-  });
+async function submit(productId: string, options: { quantity?: number; key?: string; email?: string; raw?: unknown } = {}) {
+  const payload = options.raw ?? { customer: buyer(options.email), lines: [{ productId, quantity: options.quantity ?? 1 }] };
+  const response = await submitOrder(new NextRequest("https://sourceasia-integration.invalid/api/orders", {
+    method: "POST", headers: { "Content-Type": "application/json", ...(options.key ? { "Idempotency-Key": options.key } : {}) },
+    body: JSON.stringify(payload),
+  }));
+  const body = await response.json() as { orderId?: string; orderNumber?: string; status?: string; paymentStatus?: string; error?: string };
+  return { response, body };
+}
 
-  test("2. PostgreSQL Integration: Foreign keys, unique constraints, and indexes exist", async () => {
-    const pool = getTestEcommerceDbPool();
-    const client = await pool.connect();
-    try {
-      // Check ecom_order_idempotency table unique constraint
-      const constraintsRes = await client.query<{ constraint_name: string }>(
-        `SELECT constraint_name
-         FROM information_schema.table_constraints
-         WHERE table_name = 'ecom_order_idempotency'
-           AND constraint_type = 'UNIQUE'`,
-      );
-      const constraintNames = constraintsRes.rows.map((r) => r.constraint_name);
-      assert.ok(
-        constraintNames.includes("ecom_order_idempotency_key_scope_unique"),
-        "ecom_order_idempotency must enforce unique (idempotency_key, scope)",
-      );
+async function seedProduct(stock = 5): Promise<string> {
+  const id = randomUUID();
+  await pool.query(`INSERT INTO public.products (id,name,sku,sale_price,default_gst_rate,is_active)
+    VALUES ($1,'Integration synthetic product',$2,100,18,true)`, [id, `INTEGRATION-${id}`]);
+  await pool.query("INSERT INTO public.inventory_bin_stock (product_id,quantity) VALUES ($1,$2)", [id, stock]);
+  await pool.query(`INSERT INTO public.ecom_product_catalog
+    (product_id,ecom_category_id,is_published,stock_override,name_override,price_override)
+    VALUES ($1,$2,true,$3,'Integration synthetic product',100)`, [id, categoryId, stock]);
+  return id;
+}
 
-      // Check required indexes
-      const indexesRes = await client.query<{ indexname: string }>(
-        `SELECT indexname
-         FROM pg_indexes
-         WHERE tablename = 'ecom_order_idempotency'`,
-      );
-      const indexNames = indexesRes.rows.map((r) => r.indexname);
-      assert.ok(indexNames.includes("idx_ecom_order_idempotency_key_scope"));
-    } finally {
-      client.release();
-    }
-  });
+async function count(table: string): Promise<number> {
+  assert.match(table, /^(ecom_[a-z_]+|products|inventory_bin_stock)$/);
+  return (await pool.query<{ count: number }>(`SELECT count(*)::int AS count FROM public.${table}`)).rows[0].count;
+}
 
-  test("3. PostgreSQL Integration: Atomic order creation and rollback integrity", async () => {
-    const pool = getTestEcommerceDbPool();
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      const orderRes = await client.query<{ id: string }>(
-        `INSERT INTO public.ecom_orders (status, total_amount, shipping_address_snapshot, billing_address_snapshot)
-         VALUES ('PENDING', 500, '{}'::jsonb, '{"email": "rollback@integration.com"}'::jsonb)
-         RETURNING id`,
-      );
-      const orderId = orderRes.rows[0].id;
+async function cleanFixtures() {
+  await resetTestDatabaseTables(pool);
+  await pool.query("DELETE FROM public.ecom_product_catalog");
+  await pool.query("DELETE FROM public.inventory_bin_stock");
+  await pool.query("DELETE FROM public.products");
+}
 
-      // Intentionally rollback
-      await client.query("ROLLBACK");
+async function transaction<T>(operation: (client: PoolClient) => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await operation(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally { client.release(); }
+}
 
-      // Verify no partial record survived
-      const verifyRes = await pool.query("SELECT id FROM public.ecom_orders WHERE id = $1", [orderId]);
-      assert.equal(verifyRes.rows.length, 0, "Rollback must leave zero partial order records");
-    } finally {
-      client.release();
-    }
-  });
+async function createOrder(stock = 5) {
+  const productId = await seedProduct(stock);
+  const created = await submit(productId);
+  assert.equal(created.response.status, 201, "The real application order workflow must commit successfully");
+  assert.ok(created.body.orderId && created.body.orderNumber);
+  return { productId, orderId: created.body.orderId, orderNumber: created.body.orderNumber };
+}
 
-  test("4. PostgreSQL Integration: Two concurrent checkouts competing for last unit under row locks", async () => {
-    const pool = getTestEcommerceDbPool();
-    await resetTestDatabaseTables(pool);
+async function paymentFixture(orderId: string) {
+  const gatewayOrderId = `integration-order-${randomUUID()}`;
+  await pool.query(`INSERT INTO public.ecom_payments (ecom_order_id,razorpay_order_id,amount,currency,status)
+    VALUES ($1,$2,118,'INR','CREATED')`, [orderId, gatewayOrderId]);
+  return gatewayOrderId;
+}
 
-    const client1 = await pool.connect();
-    const client2 = await pool.connect();
+async function confirmPayment(order: { orderId: string; orderNumber: string }, gatewayOrderId: string) {
+  return transaction(client => processPaymentConfirmationTransaction({
+    client, ...order, razorpayOrderId: gatewayOrderId, paymentId: `integration-payment-${order.orderId}`,
+    signature: "synthetic-fixture-no-gateway-verification", method: "UPI", isSimulated: true,
+  }));
+}
 
-    try {
-      // Setup test category and catalog product with stock_override = 1
-      const catRes = await pool.query<{ id: string }>(
-        `INSERT INTO public.ecom_categories (name, slug, is_active)
-         VALUES ('Test Cat', 'test-cat-conc', true)
-         RETURNING id`,
-      );
-      const catId = catRes.rows[0].id;
+async function transition(orderNumber: string, status: string) {
+  return transaction(client => processStaffOrderStatusTransition({
+    orderNumber, status, staffEmail: `staff@${syntheticDomain}`,
+    carrierName: "Integration Synthetic Carrier", awbNumber: "INTEGRATION-AWB",
+    trackingUrl: "https://sourceasia-integration.invalid/tracking",
+  }, client, (sql, params) => client.query(sql, params)));
+}
 
-      const prodRes = await pool.query<{ product_id: string }>(
-        `INSERT INTO public.ecom_product_catalog (product_id, ecom_category_id, is_published, stock_override)
-         VALUES (gen_random_uuid(), $1, true, 1)
-         RETURNING product_id`,
-        [catId],
-      );
-      const testProductId = prodRes.rows[0].product_id;
+async function schemaFingerprint() {
+  return (await pool.query(`SELECT pg_catalog.pg_get_constraintdef(oid) AS definition
+    FROM pg_catalog.pg_constraint WHERE conrelid='public.ecom_order_idempotency'::regclass ORDER BY definition`)).rows;
+}
 
-      // Client 1 begins transaction and acquires lock
-      await client1.query("BEGIN");
-      await client1.query(
-        `SELECT mapping.product_id, mapping.stock_override
-         FROM public.ecom_product_catalog mapping
-         WHERE mapping.product_id = $1
-         FOR UPDATE OF mapping`,
-        [testProductId],
-      );
+describe("Real PostgreSQL integration: dedicated Source Asia test database", { concurrency: false, timeout: 180000 }, () => {
+  before(async () => {
+    assert.equal(process.env.SOURCEASIA_INTEGRATION_TESTS, "true", "Run with the integration preload isolation guard");
+    getValidatedTestDatabaseUrl(); // No missing-configuration skip or fallback.
+    pool = getTestEcommerceDbPool();
+    await preflightTestDatabase();
+    guard = await pool.connect();
+    const lock = await guard.query<{ locked: boolean }>("SELECT pg_try_advisory_lock(hashtext('sourceasia-real-integration-suite')) AS locked");
+    assert.equal(lock.rows[0].locked, true, "Another integration suite is using this database; stop");
+    const activity = await guard.query<{ count: number }>(`SELECT count(*)::int AS count FROM pg_catalog.pg_stat_activity
+      WHERE datname=current_database() AND pid<>pg_backend_pid() AND xact_start IS NOT NULL AND backend_type='client backend'`);
+    assert.equal(activity.rows[0].count, 0, "Another transaction is using the dedicated test database; stop");
 
-      // Client 1 inserts reservation hold of 1 unit
-      await client1.query(
-        `INSERT INTO public.ecom_inventory_reservations (product_id, quantity, status, expires_at)
-         VALUES ($1, 1, 'HOLD', CURRENT_TIMESTAMP + interval '10 minutes')`,
-        [testProductId],
-      );
-
-      // Client 2 begins transaction in background and tries to lock the same product
-      let client2Acquired = false;
-      const client2LockPromise = (async () => {
-        await client2.query("BEGIN");
-        await client2.query(
-          `SELECT mapping.product_id, mapping.stock_override
-           FROM public.ecom_product_catalog mapping
-           WHERE mapping.product_id = $1
-           FOR UPDATE OF mapping`,
-          [testProductId],
-        );
-        client2Acquired = true;
-
-        // When client 2 unblocks, it calculates active holds
-        const holds = await client2.query<{ held: string }>(
-          `SELECT COALESCE(SUM(quantity), 0) as held
-           FROM public.ecom_inventory_reservations
-           WHERE product_id = $1 AND status = 'HOLD' AND expires_at > CURRENT_TIMESTAMP`,
-          [testProductId],
-        );
-        const heldQty = Number(holds.rows[0].held);
-        const available = Math.max(0, 1 - heldQty);
-
-        if (available < 1) {
-          await client2.query("ROLLBACK");
-          return { reserved: false, error: "OUT_OF_STOCK" };
-        }
-
-        await client2.query("COMMIT");
-        return { reserved: true };
-      })();
-
-      // Verify client 2 is currently blocked waiting for client 1's lock
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      assert.equal(client2Acquired, false, "Client 2 must be blocked by Client 1's row lock");
-
-      // Client 1 commits
-      await client1.query("COMMIT");
-
-      // Client 2 now unblocks and finishes
-      const client2Result = await client2LockPromise;
-      assert.equal(client2Result.reserved, false);
-      assert.equal(client2Result.error, "OUT_OF_STOCK");
-
-      // Confirm exactly 1 hold exists
-      const totalHoldsRes = await pool.query<{ count: string }>(
-        `SELECT COUNT(*) as count FROM public.ecom_inventory_reservations WHERE product_id = $1 AND status = 'HOLD'`,
-        [testProductId],
-      );
-      assert.equal(Number(totalHoldsRes.rows[0].count), 1, "Exactly one hold must be reserved; no overselling");
-    } finally {
-      client1.release();
-      client2.release();
-    }
-  });
-
-  test("5. PostgreSQL Integration: Idempotency uniqueness under simultaneous duplicate insertion", async () => {
-    const pool = getTestEcommerceDbPool();
-    await resetTestDatabaseTables(pool);
-
-    const client1 = await pool.connect();
-    const client2 = await pool.connect();
-
-    try {
-      const key = "integration-idempotency-key-001";
-      const scope = "user@test.com";
-
-      await client1.query("BEGIN");
-      await client2.query("BEGIN");
-
-      // Client 1 inserts key
-      await client1.query(
-        `INSERT INTO public.ecom_order_idempotency (idempotency_key, scope, request_hash)
-         VALUES ($1, $2, 'hash-1')`,
-        [key, scope],
-      );
-
-      // Client 2 attempts to insert identical key
-      let client2Error: unknown = null;
-      try {
-        await client2.query(
-          `INSERT INTO public.ecom_order_idempotency (idempotency_key, scope, request_hash)
-           VALUES ($1, $2, 'hash-1')`,
-          [key, scope],
-        );
-      } catch (err) {
-        client2Error = err;
+    // Migration 007 is safe to reapply only when any existing table is compatible.
+    const columns = await guard.query<{ column_name: string; data_type: string }>(`SELECT column_name,data_type
+      FROM information_schema.columns WHERE table_schema='public' AND table_name='ecom_order_idempotency'`);
+    if (columns.rows.length) {
+      const required = { id: "uuid", idempotency_key: "character varying", scope: "character varying",
+        request_hash: "character varying", ecom_order_id: "uuid", response_payload: "jsonb",
+        status_code: "integer", created_at: "timestamp with time zone", updated_at: "timestamp with time zone" };
+      for (const [name, type] of Object.entries(required)) {
+        assert.equal(columns.rows.find(c => c.column_name === name)?.data_type, type, "Existing migration 007 schema is incompatible; stop");
       }
-
-      await client1.query("COMMIT");
-      await client2.query("ROLLBACK").catch(() => undefined);
-
-      assert.ok(client2Error, "Second simultaneous insert with same key must hit unique constraint violation");
-    } finally {
-      client1.release();
-      client2.release();
+      const constraints = await schemaFingerprint();
+      assert.ok(constraints.some(c => c.definition === "UNIQUE (idempotency_key, scope)"));
+      assert.ok(constraints.some(c => c.definition.includes("FOREIGN KEY (ecom_order_id) REFERENCES ecom_orders(id) ON DELETE CASCADE")));
     }
+    migrations = await applyMigrationsToTestDatabase(pool);
+    // These two tiny fixture tables exist exclusively inside the dedicated test database.
+    // Production product-read SQL runs unchanged against synthetic PostgreSQL records.
+    await pool.query(`CREATE TABLE IF NOT EXISTS public.products (
+      id uuid PRIMARY KEY, name text NOT NULL, sku varchar(100) NOT NULL CHECK (sku LIKE 'INTEGRATION-%'),
+      sale_price numeric(15,2) NOT NULL, default_gst_rate numeric(5,2), is_active boolean NOT NULL);
+      CREATE TABLE IF NOT EXISTS public.inventory_bin_stock (
+      product_id uuid PRIMARY KEY REFERENCES public.products(id) ON DELETE CASCADE,
+      quantity numeric(15,3) NOT NULL CHECK (quantity>=0));`);
+    const category = await pool.query<{ id: string }>(`INSERT INTO public.ecom_categories (name,slug,is_active)
+      VALUES ('Integration synthetic category','integration-synthetic',true)
+      ON CONFLICT (slug) DO UPDATE SET is_active=true RETURNING id`);
+    categoryId = category.rows[0].id;
+    prepared = true;
   });
 
-  test("6. PostgreSQL Integration: Expired holds and reservation release behave correctly", async () => {
-    const pool = getTestEcommerceDbPool();
-    const client = await pool.connect();
-
+  beforeEach(async () => { await cleanFixtures(); });
+  after(async () => {
     try {
-      const testProdId = "00000000-0000-0000-0000-000000000001";
-
-      // Insert 1 expired hold and 1 active hold
-      await client.query(
-        `INSERT INTO public.ecom_inventory_reservations (product_id, quantity, status, expires_at)
-         VALUES
-           ($1, 2, 'HOLD', CURRENT_TIMESTAMP - interval '5 minutes'),
-           ($1, 3, 'HOLD', CURRENT_TIMESTAMP + interval '10 minutes')`,
-        [testProdId],
-      );
-
-      // Active holds query strictly excludes expired reservations
-      const activeRes = await client.query<{ held: string }>(
-        `SELECT SUM(quantity) as held
-         FROM public.ecom_inventory_reservations
-         WHERE product_id = $1 AND status = 'HOLD' AND expires_at > CURRENT_TIMESTAMP`,
-        [testProdId],
-      );
-      assert.equal(Number(activeRes.rows[0].held), 3, "Only unexpired hold (3 units) must be counted as active");
-
-      // Cleanup expired holds
-      const updateRes = await client.query(
-        `UPDATE public.ecom_inventory_reservations
-         SET status = 'RELEASED', updated_at = CURRENT_TIMESTAMP
-         WHERE product_id = $1 AND status = 'HOLD' AND expires_at <= CURRENT_TIMESTAMP`,
-        [testProdId],
-      );
-      assert.equal(updateRes.rowCount, 1, "Exactly 1 expired reservation must transition to RELEASED");
+      if (prepared) {
+        await cleanFixtures();
+        await pool.query("DELETE FROM public.ecom_categories WHERE id=$1 AND slug='integration-synthetic'", [categoryId]);
+      }
     } finally {
-      client.release();
-    }
-  });
-
-  test("7. PostgreSQL Integration: Guest-order linking is transactional and respects ownership", async () => {
-    const pool = getTestEcommerceDbPool();
-    const client = await pool.connect();
-
-    try {
-      // 1. Create registered customer
-      const custRes = await client.query<{ id: string }>(
-        `INSERT INTO public.ecom_customers (email, first_name, last_name)
-         VALUES ('realbuyer@example.com', 'Real', 'Buyer')
-         RETURNING id`,
-      );
-      const customerId = custRes.rows[0].id;
-
-      // 2. Create unassigned guest order
-      const guestOrderRes = await client.query<{ id: string; order_number: string }>(
-        `INSERT INTO public.ecom_orders (
-           ecom_customer_id, status, total_amount, shipping_address_snapshot, billing_address_snapshot
-         )
-         VALUES (NULL, 'PENDING', 1200, '{}'::jsonb, '{"email": "realbuyer@example.com"}'::jsonb)
-         RETURNING id, order_number`,
-      );
-      const guestOrderId = guestOrderRes.rows[0].id;
-
-      // 3. Link guest orders using linkGuestOrdersToCustomer
-      const linkResult = await linkGuestOrdersToCustomer(
-        {
-          email: "realbuyer@example.com",
-          isEmailVerified: true,
-          customerId,
-        },
-        client,
-      );
-
-      assert.equal(linkResult.success, true);
-      assert.equal(linkResult.linkedCount, 1);
-
-      // 4. Verify order is now linked to customerId
-      const verifyRes = await client.query<{ ecom_customer_id: string }>(
-        `SELECT ecom_customer_id FROM public.ecom_orders WHERE id = $1`,
-        [guestOrderId],
-      );
-      assert.equal(verifyRes.rows[0].ecom_customer_id, customerId);
-
-      // 5. Attempting to link by another customer cannot reassign it
-      const adversaryLink = await linkGuestOrdersToCustomer(
-        {
-          email: "realbuyer@example.com",
-          isEmailVerified: true,
-          customerId: "cust-adversary-999",
-        },
-        client,
-      );
-      assert.equal(adversaryLink.linkedCount, 0, "Already-assigned order cannot be linked to another customer");
-    } finally {
-      client.release();
-    }
-  });
-
-  test("8. PostgreSQL Integration: Duplicate payment confirmation is idempotent and avoids duplicate state transitions", async () => {
-    const pool = getTestEcommerceDbPool();
-    const client = await pool.connect();
-
-    try {
-      await client.query("BEGIN");
-
-      // Insert pending order
-      const orderRes = await client.query<{ id: string; order_number: string }>(
-        `INSERT INTO public.ecom_orders (status, payment_status, total_amount, shipping_address_snapshot, billing_address_snapshot)
-         VALUES ('PENDING', 'PENDING', 1000, '{}'::jsonb, '{"email": "payment@test.com"}'::jsonb)
-         RETURNING id, order_number`,
-      );
-      const orderId = orderRes.rows[0].id;
-      const orderNumber = orderRes.rows[0].order_number;
-
-      // Insert reservation hold
-      await client.query(
-        `INSERT INTO public.ecom_inventory_reservations (product_id, order_id, quantity, status, expires_at)
-         VALUES ('00000000-0000-0000-0000-000000000002', $1, 1, 'HOLD', CURRENT_TIMESTAMP + interval '10 minutes')`,
-        [orderId],
-      );
-
-      // Insert pending payment record
-      const rzpOrderId = "order_rzp_integ_test_01";
-      await client.query(
-        `INSERT INTO public.ecom_payments (ecom_order_id, razorpay_order_id, amount, currency, status)
-         VALUES ($1, $2, 1000, 'INR', 'CREATED')`,
-        [orderId, rzpOrderId],
-      );
-
-      // First confirmation attempt
-      const result1 = await processPaymentConfirmationTransaction({
-        client,
-        orderId,
-        orderNumber,
-        razorpayOrderId: rzpOrderId,
-        paymentId: "pay_rzp_integ_test_99",
-        signature: "valid_test_sig",
-        method: "UPI",
-        isSimulated: false,
-      });
-
-      assert.equal(result1.success, true);
-      assert.equal(result1.status, "CONFIRMED");
-      assert.equal(result1.paymentStatus, "PAID");
-
-      // Repeated confirmation attempt with identical parameters
-      const result2 = await processPaymentConfirmationTransaction({
-        client,
-        orderId,
-        orderNumber,
-        razorpayOrderId: rzpOrderId,
-        paymentId: "pay_rzp_integ_test_99",
-        signature: "valid_test_sig",
-        method: "UPI",
-        isSimulated: false,
-      });
-
-      assert.equal(result2.success, true);
-      assert.equal(result2.alreadyPaid, true, "Subsequent payment confirmation must report alreadyPaid: true");
-
-      await client.query("ROLLBACK"); // Roll back test transaction to leave disposable test DB clean
-    } finally {
-      client.release();
-      await resetTestDatabaseTables(pool);
+      if (guard) {
+        await guard.query("SELECT pg_advisory_unlock(hashtext('sourceasia-real-integration-suite'))").catch(() => {});
+        guard.release();
+      }
       await closeTestEcommerceDbPool();
     }
   });
-}
+
+  test("01 connection, SSL, migrations 001-007 and application schema", async () => {
+    const identity = await preflightTestDatabase();
+    assert.equal(identity.database, "sourceasia_ecom_test"); assert.equal(identity.ssl, true);
+    assert.equal(migrations.length, 8);
+    assert.equal(migrations[6], "007_add_order_idempotency.sql");
+    assert.equal(migrations[7], "008_add_bank_transfer_payments.sql");
+    const tables = await pool.query<{ count: number }>(`SELECT count(*)::int AS count FROM information_schema.tables
+      WHERE table_schema='public' AND table_name LIKE 'ecom_%' AND table_type='BASE TABLE'`);
+    assert.equal(tables.rows[0].count, 19);
+    const indexes = await pool.query("SELECT indexname FROM pg_indexes WHERE schemaname='public' AND tablename='ecom_order_idempotency'");
+    assert.ok(indexes.rows.some(i => i.indexname === "idx_ecom_order_idempotency_key_scope"));
+  });
+
+  test("02 migration 007 reapplies idempotently without changing constraints", async () => {
+    const before = await schemaFingerprint();
+    const client = await pool.connect();
+    try { await client.query(fs.readFileSync(path.resolve("db/migrations/007_add_order_idempotency.sql"), "utf8")); }
+    finally { client.release(); }
+    assert.deepEqual(await schemaFingerprint(), before);
+    assert.equal(await count("ecom_order_idempotency"), 0);
+  });
+
+  test("03 real order request commits order, line, hold and notification outbox", async () => {
+    const order = await createOrder();
+    const stored = await pool.query("SELECT status,payment_status,total_amount FROM public.ecom_orders WHERE id=$1", [order.orderId]);
+    assert.equal(stored.rows[0].status, "PENDING"); assert.equal(stored.rows[0].payment_status, "PENDING");
+    assert.equal(Number(stored.rows[0].total_amount), 118);
+    assert.equal(await count("ecom_order_items"), 1); assert.equal(await count("ecom_inventory_reservations"), 1);
+    assert.ok(await count("ecom_notification_outbox") >= 2);
+  });
+
+  test("04 PostgreSQL rollback leaves no partial order or line", async () => {
+    const product = await seedProduct(); const client = await pool.connect(); let id = "";
+    try {
+      await client.query("BEGIN");
+      const order = await client.query(`INSERT INTO public.ecom_orders (shipping_address_snapshot,billing_address_snapshot)
+        VALUES ('{}'::jsonb,'{}'::jsonb) RETURNING id`);
+      id = order.rows[0].id;
+      await client.query(`INSERT INTO public.ecom_order_items (ecom_order_id,product_id,product_name_snapshot,sku_snapshot)
+        VALUES ($1,$2,'Integration rollback product','INTEGRATION-ROLLBACK')`, [id, product]);
+      await client.query("ROLLBACK");
+    } finally { await client.query("ROLLBACK").catch(() => {}); client.release(); }
+    assert.equal((await pool.query("SELECT id FROM public.ecom_orders WHERE id=$1", [id])).rowCount, 0);
+    assert.equal(await count("ecom_order_items"), 0);
+  });
+
+  test("05 concurrent real checkouts reserve the last unit exactly once", async () => {
+    const product = await seedProduct(1);
+    const results = await Promise.all([submit(product), submit(product)]);
+    assert.deepEqual(results.map(r => r.response.status).sort(), [201, 409]);
+    assert.equal(await count("ecom_orders"), 1);
+    const holds = await pool.query("SELECT sum(quantity) AS quantity FROM public.ecom_inventory_reservations WHERE status='HOLD'");
+    assert.equal(Number(holds.rows[0].quantity), 1);
+  });
+
+  test("06 request retries replay the committed order without duplicates", async () => {
+    const product = await seedProduct(); const key = `integration-${randomUUID()}`; const email = buyer().email;
+    const first = await submit(product, { key, email }); const retry = await submit(product, { key, email });
+    assert.equal(first.response.status, 201); assert.equal(retry.response.status, 201);
+    assert.equal(retry.response.headers.get("Idempotent-Replayed"), "true");
+    assert.deepEqual(retry.body, first.body);
+    for (const table of ["ecom_orders", "ecom_order_items", "ecom_inventory_reservations", "ecom_order_idempotency"]) assert.equal(await count(table), 1);
+  });
+
+  test("07 concurrent duplicate requests serialize through real advisory locks", async () => {
+    const product = await seedProduct(1); const key = `integration-${randomUUID()}`; const email = buyer().email;
+    const results = await Promise.all([submit(product, { key, email }), submit(product, { key, email })]);
+    assert.ok(results.every(r => r.response.status === 201));
+    assert.equal(results[0].body.orderId, results[1].body.orderId);
+    assert.equal(results.filter(r => r.response.headers.get("Idempotent-Replayed") === "true").length, 1);
+    assert.equal(await count("ecom_orders"), 1); assert.equal(await count("ecom_order_idempotency"), 1);
+  });
+
+  test("08 reusing an idempotency key for a different request returns 409", async () => {
+    const product = await seedProduct(); const key = `integration-${randomUUID()}`; const email = buyer().email;
+    assert.equal((await submit(product, { key, email })).response.status, 201);
+    assert.equal((await submit(product, { key, email, quantity: 2 })).response.status, 409);
+    assert.equal(await count("ecom_orders"), 1);
+  });
+
+  test("09 checkout releases expired holds and preserves consistent availability", async () => {
+    const product = await seedProduct(1);
+    assert.equal((await submit(product)).response.status, 201);
+    await pool.query("UPDATE public.ecom_inventory_reservations SET expires_at=CURRENT_TIMESTAMP-interval '1 minute'");
+    assert.equal((await submit(product)).response.status, 201);
+    const status = await pool.query("SELECT status,count(*)::int AS count FROM public.ecom_inventory_reservations GROUP BY status ORDER BY status");
+    assert.deepEqual(status.rows, [{ status: "HOLD", count: 1 }, { status: "RELEASED", count: 1 }]);
+    assert.equal((await submit(product)).response.status, 409);
+    const stock = await pool.query("SELECT stock_override FROM public.ecom_product_catalog WHERE product_id=$1", [product]);
+    assert.equal(stock.rows[0].stock_override, 1);
+  });
+
+  test("10 guest linking requires verification and cannot reassign an owned order", async () => {
+    const email = buyer().email; const product = await seedProduct();
+    const order = await submit(product, { email }); assert.equal(order.response.status, 201);
+    const customers = await pool.query(`INSERT INTO public.ecom_customers (email,first_name)
+      VALUES ($1,'Integration Buyer'),($2,'Integration Other') RETURNING id`, [email, buyer().email]);
+    await transaction(async client => {
+      const options = { email, customerId: customers.rows[0].id, isEmailVerified: false };
+      assert.equal((await linkGuestOrdersToCustomer(options, client)).success, false);
+      const linked = await linkGuestOrdersToCustomer({ ...options, isEmailVerified: true }, client);
+      assert.equal(linked.linkedCount, 1);
+      assert.equal((await linkGuestOrdersToCustomer({ ...options, isEmailVerified: true }, client)).linkedCount, 0);
+      assert.equal((await linkGuestOrdersToCustomer({ ...options, isEmailVerified: true, customerId: customers.rows[1].id }, client)).linkedCount, 0);
+    });
+    assert.equal((await pool.query("SELECT ecom_customer_id FROM public.ecom_orders WHERE id=$1", [order.body.orderId])).rows[0].ecom_customer_id, customers.rows[0].id);
+    assert.equal(await count("ecom_audit_log"), 1);
+  });
+
+  test("11 payment transaction confirms once and deducts stock once (synthetic event, no gateway)", async () => {
+    const order = await createOrder(3); const payment = await paymentFixture(order.orderId);
+    assert.equal((await confirmPayment(order, payment)).success, true);
+    assert.equal((await confirmPayment(order, payment)).alreadyPaid, true);
+    const state = await pool.query("SELECT status,payment_status FROM public.ecom_orders WHERE id=$1", [order.orderId]);
+    assert.deepEqual(state.rows[0], { status: "CONFIRMED", payment_status: "PAID" });
+    assert.equal((await pool.query("SELECT stock_override FROM public.ecom_product_catalog WHERE product_id=$1", [order.productId])).rows[0].stock_override, 2);
+    assert.equal((await pool.query("SELECT status FROM public.ecom_payments WHERE ecom_order_id=$1", [order.orderId])).rows[0].status, "CAPTURED");
+    assert.equal(await count("ecom_audit_log"), 1);
+  });
+
+  test("12 staff confirmation rejects unpaid and unverified-payment orders", async () => {
+    const order = await createOrder();
+    const unpaid = await transition(order.orderNumber, "CONFIRMED");
+    assert.equal(unpaid.success, false); if (!unpaid.success) assert.equal(unpaid.statusCode, 422);
+    await pool.query("UPDATE public.ecom_orders SET payment_status='PAID' WHERE id=$1", [order.orderId]);
+    const unverified = await transition(order.orderNumber, "CONFIRMED");
+    assert.equal(unverified.success, false); if (!unverified.success) assert.equal(unverified.statusCode, 422);
+    assert.equal((await pool.query("SELECT status FROM public.ecom_orders WHERE id=$1", [order.orderId])).rows[0].status, "PENDING");
+    assert.equal(await count("ecom_audit_log"), 0);
+  });
+
+  test("13 late payment enters review without confirming or decrementing stock", async () => {
+    const order = await createOrder(2); const payment = await paymentFixture(order.orderId);
+    await pool.query("UPDATE public.ecom_inventory_reservations SET expires_at=CURRENT_TIMESTAMP-interval '1 minute'");
+    const result = await confirmPayment(order, payment);
+    assert.equal(result.success, false); assert.equal(result.holdExpired, true); assert.equal(result.status, "PAYMENT_REVIEW");
+    assert.equal((await pool.query("SELECT stock_override FROM public.ecom_product_catalog WHERE product_id=$1", [order.productId])).rows[0].stock_override, 2);
+    assert.equal((await pool.query("SELECT status FROM public.ecom_orders WHERE id=$1", [order.orderId])).rows[0].status, "PAYMENT_REVIEW");
+  });
+
+  test("14 shipment lifecycle updates one record and rejects duplicate transitions", async () => {
+    const order = await createOrder(); await confirmPayment(order, await paymentFixture(order.orderId));
+    let shipmentId: string | undefined;
+    for (const status of ["PROCESSING", "PACKAGED", "IN_TRANSIT", "DELIVERED"]) {
+      assert.equal((await transition(order.orderNumber, status)).success, true);
+      if (status === "PROCESSING") continue;
+      const shipment = await pool.query("SELECT id,status,shipped_at,delivered_at FROM public.ecom_shipments WHERE ecom_order_id=$1", [order.orderId]);
+      assert.equal(shipment.rows.length, 1);
+      shipmentId ??= shipment.rows[0].id; assert.equal(shipment.rows[0].id, shipmentId);
+      assert.equal(shipment.rows[0].status, status);
+      if (status === "DELIVERED") { assert.ok(shipment.rows[0].shipped_at); assert.ok(shipment.rows[0].delivered_at); }
+    }
+    assert.equal((await transition(order.orderNumber, "DELIVERED")).success, false);
+    assert.equal(await count("ecom_shipments"), 1);
+  });
+
+  test("15 concurrent packaging creates a single shipment under the real order lock", async () => {
+    const order = await createOrder(); await confirmPayment(order, await paymentFixture(order.orderId));
+    assert.equal((await transition(order.orderNumber, "PROCESSING")).success, true);
+    const results = await Promise.all([transition(order.orderNumber, "PACKAGED"), transition(order.orderNumber, "PACKAGED")]);
+    assert.equal(results.filter(r => r.success).length, 1); assert.equal(await count("ecom_shipments"), 1);
+  });
+
+  test("16 PostgreSQL rejects foreign-key, check and unique-constraint violations", async () => {
+    const product = await seedProduct();
+    await assert.rejects(pool.query(`INSERT INTO public.ecom_inventory_reservations (product_id,quantity,expires_at)
+      VALUES ($1,0,CURRENT_TIMESTAMP)`, [product]), { code: "23514" });
+    await assert.rejects(pool.query("UPDATE public.ecom_product_catalog SET stock_override=-1 WHERE product_id=$1", [product]), { code: "23514" });
+    await assert.rejects(pool.query(`INSERT INTO public.ecom_order_items (ecom_order_id,product_id,product_name_snapshot,sku_snapshot)
+      VALUES ($1,$2,'Integration invalid FK','INTEGRATION-INVALID')`, [randomUUID(), product]), { code: "23503" });
+    await pool.query("INSERT INTO public.ecom_customers (email) VALUES ($1)", [`unique@${syntheticDomain}`]);
+    await assert.rejects(pool.query("INSERT INTO public.ecom_customers (email) VALUES ($1)", [`unique@${syntheticDomain}`]), { code: "23505" });
+    const order = await submit(product); assert.equal(order.response.status, 201);
+    await assert.rejects(pool.query(`INSERT INTO public.ecom_payments (ecom_order_id,razorpay_order_id,amount)
+      VALUES ($1,'integration-invalid-amount',-1)`, [order.body.orderId]), { code: "23514" });
+  });
+
+  test("17 invalid real order requests leave no order, hold or idempotency record", async () => {
+    const product = await seedProduct();
+    for (const quantity of [0, -1, 1.5, 501]) assert.equal((await submit(product, { quantity })).response.status, 400);
+    assert.equal((await submit(product, { key: "short" })).response.status, 400);
+    assert.equal((await submit(randomUUID())).response.status, 409);
+    for (const table of ["ecom_orders", "ecom_inventory_reservations", "ecom_order_idempotency"]) assert.equal(await count(table), 0);
+  });
+
+  test("18 bank transfer: UTR submission, verification, and rejection flows", async () => {
+    // A. Create order + bank transfer record (as the order route would)
+    const order = await createOrder();
+    const reference = generateTransferReference(order.orderNumber);
+    assert.ok(isValidUtr("N12345678901"));
+    await pool.query(
+      `INSERT INTO public.ecom_payments (ecom_order_id,gateway,razorpay_order_id,amount,currency,status,method)
+       VALUES ($1,'BANK_TRANSFER',$2,118,'INR','CREATED','BANK_TRANSFER')`,
+      [order.orderId, reference],
+    );
+
+    // B. Customer submits a UTR -> PENDING_VERIFICATION, nothing auto-confirms
+    const utr = "N12345678901";
+    await pool.query(
+      "UPDATE public.ecom_payments SET utr_reference=$2, status='PENDING_VERIFICATION' WHERE razorpay_order_id=$1",
+      [reference, utr],
+    );
+    const pre = await pool.query("SELECT status FROM public.ecom_orders WHERE id=$1", [order.orderId]);
+    assert.equal(pre.rows[0].status, "PENDING", "UTR submission must not auto-confirm the order");
+
+    // C. Staff confirm -> order CONFIRMED/PAID, stock decremented, holds committed
+    const confirmed = await transaction(client => verifyBankTransferTransaction({
+      client, orderNumber: order.orderNumber, utr, staffEmail: `staff@${syntheticDomain}`, action: "confirm",
+    }));
+    assert.equal(confirmed.success, true);
+    const post = await pool.query("SELECT status,payment_status FROM public.ecom_orders WHERE id=$1", [order.orderId]);
+    assert.deepEqual(post.rows[0], { status: "CONFIRMED", payment_status: "PAID" });
+    assert.equal((await pool.query("SELECT stock_override FROM public.ecom_product_catalog WHERE product_id=$1", [order.productId])).rows[0].stock_override, 4);
+    assert.equal((await pool.query("SELECT status FROM public.ecom_payments WHERE razorpay_order_id=$1", [reference])).rows[0].status, "CAPTURED");
+
+    // D. Double verification is rejected (idempotent safety)
+    const again = await transaction(client => verifyBankTransferTransaction({
+      client, orderNumber: order.orderNumber, utr, staffEmail: `staff@${syntheticDomain}`, action: "confirm",
+    }));
+    assert.equal(again.success, false);
+
+    // E. Rejection flow on a fresh order
+    const order2 = await createOrder();
+    const ref2 = generateTransferReference(order2.orderNumber);
+    await pool.query(
+      `INSERT INTO public.ecom_payments (ecom_order_id,gateway,razorpay_order_id,amount,currency,status,method)
+       VALUES ($1,'BANK_TRANSFER',$2,118,'INR','CREATED','BANK_TRANSFER')`,
+      [order2.orderId, ref2],
+    );
+    const utr2 = "R98765432109";
+    await pool.query(
+      "UPDATE public.ecom_payments SET utr_reference=$2, status='PENDING_VERIFICATION' WHERE razorpay_order_id=$1",
+      [ref2, utr2],
+    );
+    const rejected = await transaction(client => verifyBankTransferTransaction({
+      client, orderNumber: order2.orderNumber, utr: utr2, staffEmail: `staff@${syntheticDomain}`, action: "reject",
+    }));
+    assert.equal(rejected.success, true);
+    const after2 = await pool.query("SELECT status,payment_status FROM public.ecom_orders WHERE id=$1", [order2.orderId]);
+    assert.equal(after2.rows[0].payment_status, "PENDING", "rejection must not mark the order paid");
+    assert.equal((await pool.query("SELECT status FROM public.ecom_payments WHERE razorpay_order_id=$1", [ref2])).rows[0].status, "FAILED");
+
+    // F. Wrong UTR is rejected
+    const wrong = await transaction(client => verifyBankTransferTransaction({
+      client, orderNumber: order2.orderNumber, utr: "N00000000000", staffEmail: `staff@${syntheticDomain}`, action: "confirm",
+    }));
+    assert.equal(wrong.success, false);
+  });
+
+  test("19 cleanup removes synthetic transactional data and application pools remain blocked", async () => {
+    await createOrder(); assert.equal(await count("ecom_orders"), 1);
+    await cleanFixtures();
+    for (const table of ["ecom_orders", "ecom_order_items", "ecom_customers", "ecom_payments", "ecom_shipments",
+      "ecom_inventory_reservations", "ecom_notification_outbox", "ecom_audit_log", "ecom_order_idempotency", "products", "inventory_bin_stock", "ecom_product_catalog"]) {
+      assert.equal(await count(table), 0);
+    }
+    assert.throws(getDbPool, /disabled in integration tests/);
+    assert.throws(getEcommerceDbPool, /disabled in integration tests/);
+    assert.equal((await preflightTestDatabase()).database, "sourceasia_ecom_test");
+  });
+});

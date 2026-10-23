@@ -7,8 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test app/lib/order-request-validation.test.ts app/lib/ecommerce-database.test.ts app/lib/razorpay-security.test.ts app/lib/order-fulfillment-lifecycle.test.ts app/lib/order-concurrency-idempotency.test.ts app/lib/account-linking.test.ts app/lib/razorpay-test-mode.test.ts",
-    "test:integration": "tsx --test app/lib/ecommerce-integration.test.ts",
+    "test": "tsx --test app/lib/test-database-safety.test.ts app/lib/order-request-validation.test.ts app/lib/ecommerce-database.test.ts app/lib/razorpay-security.test.ts app/lib/order-fulfillment-lifecycle.test.ts app/lib/order-concurrency-idempotency.test.ts app/lib/account-linking.test.ts app/lib/razorpay-test-mode.test.ts app/lib/bank-transfer-service.test.ts",
+    "test:db:preflight": "tsx scripts/test-database-preflight.ts",
+    "test:integration": "tsx --env-file=.env.local --import ./scripts/integration-test-setup.mjs --test --test-concurrency=1 app/lib/ecommerce-integration.test.ts",
     "test:all": "npm test && npm run test:integration"
   },
   "dependencies": {

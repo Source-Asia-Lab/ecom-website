@@ -82,6 +82,9 @@ function assertEcommerceDatabaseIsSeparate(): void {
 }
 
 export function getDbPool(): Pool {
+  if (process.env.SOURCEASIA_INTEGRATION_TESTS === "true") {
+    throw new Error("Application database pools are disabled in integration tests; use a verified test client.");
+  }
   if (!globalForDb.sourceAsiaDbPool) {
     globalForDb.sourceAsiaDbPool = createPool(process.env.DATABASE_URL, "DATABASE_URL");
   }
@@ -89,6 +92,9 @@ export function getDbPool(): Pool {
 }
 
 export function getEcommerceDbPool(): Pool {
+  if (process.env.SOURCEASIA_INTEGRATION_TESTS === "true") {
+    throw new Error("Application database pools are disabled in integration tests; use a verified test client.");
+  }
   if (!globalForDb.sourceAsiaEcommerceDbPool) {
     assertEcommerceDatabaseIsSeparate();
     globalForDb.sourceAsiaEcommerceDbPool = createPool(

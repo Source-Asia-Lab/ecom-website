@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { PageContainer, TextLink } from "./components/ui";
+import { PageContainer } from "./components/ui";
 import Hero from "./components/site/Hero";
 import ProductRibbon from "./components/site/ProductRibbon";
 import HexCategoryRibbon from "./components/site/HexCategoryRibbon";

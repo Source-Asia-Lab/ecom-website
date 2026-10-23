@@ -129,7 +129,7 @@ export default function ProcessFlowSection() {
                     setActiveStepIndex(idx);
                   }
                 }}
-                aria-selected={isActive}
+                aria-pressed={isActive}
               >
                 <div className="process-step-header">
                   <span className="process-step-number">{step.number}</span>

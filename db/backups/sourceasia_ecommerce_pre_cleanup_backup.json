@@ -1,0 +1,690 @@
+{
+  "metadata": {
+    "sourceDatabase": "sourceasia_ecommerce",
+    "timestamp": "2026-10-14T05:39:21.519Z",
+    "host": "sourceasia-pgsql-db-dev.postgres.database.azure.com",
+    "port": 5432,
+    "note": "Pre-cleanup structural and data backup of interim database"
+  },
+  "tableCounts": [
+    {
+      "table": "ecom_addresses",
+      "count": 0
+    },
+    {
+      "table": "ecom_audit_log",
+      "count": 0
+    },
+    {
+      "table": "ecom_categories",
+      "count": 12
+    },
+    {
+      "table": "ecom_category_types",
+      "count": 54
+    },
+    {
+      "table": "ecom_customers",
+      "count": 0
+    },
+    {
+      "table": "ecom_notification_outbox",
+      "count": 0
+    },
+    {
+      "table": "ecom_order_items",
+      "count": 0
+    },
+    {
+      "table": "ecom_orders",
+      "count": 0
+    },
+    {
+      "table": "ecom_product_catalog",
+      "count": 7
+    },
+    {
+      "table": "ecom_refund_requests",
+      "count": 0
+    },
+    {
+      "table": "ecom_support_messages",
+      "count": 0
+    },
+    {
+      "table": "ecom_support_tickets",
+      "count": 0
+    }
+  ],
+  "data": {
+    "ecom_categories": [
+      {
+        "id": "bcdc0111-220c-40de-b169-3e428ede7589",
+        "name": "Raspberry Pi",
+        "slug": "raspberry-pi",
+        "display_order": 1,
+        "is_active": true
+      },
+      {
+        "id": "cb09c2e5-f89d-474f-8386-1896dd66c97b",
+        "name": "SD Cards",
+        "slug": "sd-cards",
+        "display_order": 2,
+        "is_active": true
+      },
+      {
+        "id": "ffaa5fba-5ff6-4220-8d61-a4901628f23c",
+        "name": "Power Supplies",
+        "slug": "power-supplies",
+        "display_order": 3,
+        "is_active": true
+      },
+      {
+        "id": "ba67ecc9-2ede-49c1-95b7-5e74636a78bb",
+        "name": "Clips",
+        "slug": "clips",
+        "display_order": 4,
+        "is_active": true
+      },
+      {
+        "id": "88bca2d5-235a-4d31-b427-6139338b6fc8",
+        "name": "Stickers",
+        "slug": "stickers",
+        "display_order": 5,
+        "is_active": true
+      },
+      {
+        "id": "77c46ea8-0fb7-4fae-b85e-bae8f07c97f7",
+        "name": "Handtools",
+        "slug": "handtools",
+        "display_order": 6,
+        "is_active": true
+      },
+      {
+        "id": "02b32fdc-ec3e-4f0c-b58d-b97245095e2a",
+        "name": "Loctites",
+        "slug": "loctites",
+        "display_order": 7,
+        "is_active": true
+      },
+      {
+        "id": "16439e34-2df0-4dbf-b3e4-84eb1c9e4565",
+        "name": "Stretch Film",
+        "slug": "stretch-film",
+        "display_order": 8,
+        "is_active": true
+      },
+      {
+        "id": "324bf9c1-8904-4a26-9b41-4d12a4aaa667",
+        "name": "Tapes",
+        "slug": "tapes",
+        "display_order": 9,
+        "is_active": true
+      },
+      {
+        "id": "7ff8c773-19c0-46f5-a6ea-42ba498e531c",
+        "name": "Gloves",
+        "slug": "gloves",
+        "display_order": 10,
+        "is_active": true
+      },
+      {
+        "id": "a90c40ae-4d14-416f-b502-34b8cf97845b",
+        "name": "Hook Up Wires",
+        "slug": "hook-up-wires",
+        "display_order": 11,
+        "is_active": true
+      },
+      {
+        "id": "c6febc47-30eb-4286-902d-27553337299d",
+        "name": "Office Supplies",
+        "slug": "office-supplies",
+        "display_order": 12,
+        "is_active": true
+      }
+    ],
+    "ecom_category_types": [
+      {
+        "id": "c260331a-fefb-461f-a6fe-eaddd20cb04e",
+        "ecom_category_id": "ffaa5fba-5ff6-4220-8d61-a4901628f23c",
+        "name": "AC Adapters",
+        "slug": "ac-adapters",
+        "display_order": 1,
+        "is_active": true
+      },
+      {
+        "id": "bcffd5ef-150d-4bef-b7a1-c1f617335322",
+        "ecom_category_id": "7ff8c773-19c0-46f5-a6ea-42ba498e531c",
+        "name": "Cotton Gloves",
+        "slug": "cotton-gloves",
+        "display_order": 1,
+        "is_active": true
+      },
+      {
+        "id": "4bde82a9-dad5-4f10-bc98-3946419044db",
+        "ecom_category_id": "16439e34-2df0-4dbf-b3e4-84eb1c9e4565",
+        "name": "Hand Stretch Film",
+        "slug": "hand-stretch-film",
+        "display_order": 1,
+        "is_active": true
+      },
+      {
+        "id": "a4d8c9d3-1af6-44d7-bfd0-51cfa1160fd3",
+        "ecom_category_id": "324bf9c1-8904-4a26-9b41-4d12a4aaa667",
+        "name": "Packaging Tape",
+        "slug": "packaging-tape",
+        "display_order": 1,
+        "is_active": true
+      },
+      {
+        "id": "ccbdb716-d403-4e81-9c72-55d667014ca1",
+        "ecom_category_id": "c6febc47-30eb-4286-902d-27553337299d",
+        "name": "Pens",
+        "slug": "pens",
+        "display_order": 1,
+        "is_active": true
+      },
+      {
+        "id": "52ce2fbc-043d-496b-9d7b-27091dfc55ab",
+        "ecom_category_id": "88bca2d5-235a-4d31-b427-6139338b6fc8",
+        "name": "Product Labels",
+        "slug": "product-labels",
+        "display_order": 1,
+        "is_active": true
+      },
+      {
+        "id": "8e08723d-460c-49de-af8f-551630406c5a",
+        "ecom_category_id": "bcdc0111-220c-40de-b169-3e428ede7589",
+        "name": "Raspberry Pi Boards",
+        "slug": "raspberry-pi-boards",
+        "display_order": 1,
+        "is_active": true
+      },
+      {
+        "id": "eacdb927-8f96-4c2b-a4cd-0fa507dc1ccc",
+        "ecom_category_id": "77c46ea8-0fb7-4fae-b85e-bae8f07c97f7",
+        "name": "Screwdrivers",
+        "slug": "screwdrivers",
+        "display_order": 1,
+        "is_active": true
+      },
+      {
+        "id": "31c5cb3f-77c0-4766-a19f-cbe7e06d5f3d",
+        "ecom_category_id": "cb09c2e5-f89d-474f-8386-1896dd66c97b",
+        "name": "SD Cards",
+        "slug": "sd-cards",
+        "display_order": 1,
+        "is_active": true
+      },
+      {
+        "id": "477d648b-e420-4ec8-b4f9-84557183ebfb",
+        "ecom_category_id": "a90c40ae-4d14-416f-b502-34b8cf97845b",
+        "name": "Single-Core Wires",
+        "slug": "single-core-wires",
+        "display_order": 1,
+        "is_active": true
+      },
+      {
+        "id": "a501f14b-aa81-46a5-8718-f9453b5927a4",
+        "ecom_category_id": "ba67ecc9-2ede-49c1-95b7-5e74636a78bb",
+        "name": "Strapping Clips",
+        "slug": "strapping-clips",
+        "display_order": 1,
+        "is_active": true
+      },
+      {
+        "id": "d94a6cd1-0228-4581-b77c-a7a65644d079",
+        "ecom_category_id": "02b32fdc-ec3e-4f0c-b58d-b97245095e2a",
+        "name": "Threadlockers",
+        "slug": "threadlockers",
+        "display_order": 1,
+        "is_active": true
+      },
+      {
+        "id": "480608bf-17db-4a1e-a40b-230c40c8d8dc",
+        "ecom_category_id": "88bca2d5-235a-4d31-b427-6139338b6fc8",
+        "name": "Barcode Labels",
+        "slug": "barcode-labels",
+        "display_order": 2,
+        "is_active": true
+      },
+      {
+        "id": "265cc4b1-61b7-4309-9f9d-7717a0c70522",
+        "ecom_category_id": "ba67ecc9-2ede-49c1-95b7-5e74636a78bb",
+        "name": "Cable Clips",
+        "slug": "cable-clips",
+        "display_order": 2,
+        "is_active": true
+      },
+      {
+        "id": "e1e8eb0d-8d31-4f67-b5b2-d3024b43a801",
+        "ecom_category_id": "ffaa5fba-5ff6-4220-8d61-a4901628f23c",
+        "name": "DC Power Supplies",
+        "slug": "dc-power-supplies",
+        "display_order": 2,
+        "is_active": true
+      },
+      {
+        "id": "bcff8a8a-1063-416e-a51b-e43a702e716d",
+        "ecom_category_id": "324bf9c1-8904-4a26-9b41-4d12a4aaa667",
+        "name": "Double-Sided Tape",
+        "slug": "double-sided-tape",
+        "display_order": 2,
+        "is_active": true
+      },
+      {
+        "id": "29dcc107-212e-452e-a9b3-2081a03d1847",
+        "ecom_category_id": "16439e34-2df0-4dbf-b3e4-84eb1c9e4565",
+        "name": "Machine Stretch Film",
+        "slug": "machine-stretch-film",
+        "display_order": 2,
+        "is_active": true
+      },
+      {
+        "id": "8ba04ac0-0bf2-45b3-b160-14be9d6de3d6",
+        "ecom_category_id": "cb09c2e5-f89d-474f-8386-1896dd66c97b",
+        "name": "microSD Cards",
+        "slug": "microsd-cards",
+        "display_order": 2,
+        "is_active": true
+      },
+      {
+        "id": "802c9583-4303-4ee7-915a-a6db88188b10",
+        "ecom_category_id": "7ff8c773-19c0-46f5-a6ea-42ba498e531c",
+        "name": "Nitrile Gloves",
+        "slug": "nitrile-gloves",
+        "display_order": 2,
+        "is_active": true
+      },
+      {
+        "id": "005e257a-4007-4e7a-b480-8a543e67512e",
+        "ecom_category_id": "c6febc47-30eb-4286-902d-27553337299d",
+        "name": "Notebooks",
+        "slug": "notebooks",
+        "display_order": 2,
+        "is_active": true
+      },
+      {
+        "id": "915e71ca-f6e1-46f3-9c51-02669541397c",
+        "ecom_category_id": "77c46ea8-0fb7-4fae-b85e-bae8f07c97f7",
+        "name": "Pliers",
+        "slug": "pliers",
+        "display_order": 2,
+        "is_active": true
+      },
+      {
+        "id": "e03cf919-b6a8-4559-818a-f97ba2900acb",
+        "ecom_category_id": "a90c40ae-4d14-416f-b502-34b8cf97845b",
+        "name": "PVC Hook-Up Wires",
+        "slug": "pvc-hook-up-wires",
+        "display_order": 2,
+        "is_active": true
+      },
+      {
+        "id": "48ec7cab-4087-40e3-9655-5db6a5a93ae0",
+        "ecom_category_id": "bcdc0111-220c-40de-b169-3e428ede7589",
+        "name": "Raspberry Pi Kits",
+        "slug": "raspberry-pi-kits",
+        "display_order": 2,
+        "is_active": true
+      },
+      {
+        "id": "337cc8a5-fe8a-47ea-bb07-248e1205837a",
+        "ecom_category_id": "02b32fdc-ec3e-4f0c-b58d-b97245095e2a",
+        "name": "Retaining Compounds",
+        "slug": "retaining-compounds",
+        "display_order": 2,
+        "is_active": true
+      },
+      {
+        "id": "3e0eeb99-88ca-47cc-8fe9-850eb8f34a40",
+        "ecom_category_id": "77c46ea8-0fb7-4fae-b85e-bae8f07c97f7",
+        "name": "Cutters",
+        "slug": "cutters",
+        "display_order": 3,
+        "is_active": true
+      },
+      {
+        "id": "e818d7cf-bad5-4464-a9f4-4dc13a012e47",
+        "ecom_category_id": "324bf9c1-8904-4a26-9b41-4d12a4aaa667",
+        "name": "Electrical Tape",
+        "slug": "electrical-tape",
+        "display_order": 3,
+        "is_active": true
+      },
+      {
+        "id": "f594f12d-2f06-45ab-a927-6e7417608c76",
+        "ecom_category_id": "c6febc47-30eb-4286-902d-27553337299d",
+        "name": "Files & Folders",
+        "slug": "files-folders",
+        "display_order": 3,
+        "is_active": true
+      },
+      {
+        "id": "dc4a3173-c844-44fb-bf70-41a2f4f55cd4",
+        "ecom_category_id": "a90c40ae-4d14-416f-b502-34b8cf97845b",
+        "name": "Flexible Hook-Up Wires",
+        "slug": "flexible-hook-up-wires",
+        "display_order": 3,
+        "is_active": true
+      },
+      {
+        "id": "529c159c-4131-4e40-ac2a-8c5581259ea1",
+        "ecom_category_id": "7ff8c773-19c0-46f5-a6ea-42ba498e531c",
+        "name": "Latex Gloves",
+        "slug": "latex-gloves",
+        "display_order": 3,
+        "is_active": true
+      },
+      {
+        "id": "b7694241-3f9d-4f7a-8345-655432da6bb9",
+        "ecom_category_id": "16439e34-2df0-4dbf-b3e4-84eb1c9e4565",
+        "name": "Pre-Stretch Film",
+        "slug": "pre-stretch-film",
+        "display_order": 3,
+        "is_active": true
+      },
+      {
+        "id": "e9fdb07f-23a4-4bfb-8f44-5cbd9d3720b2",
+        "ecom_category_id": "bcdc0111-220c-40de-b169-3e428ede7589",
+        "name": "Raspberry Pi Accessories",
+        "slug": "raspberry-pi-accessories",
+        "display_order": 3,
+        "is_active": true
+      },
+      {
+        "id": "5e7015d3-40fc-4ff4-be3c-6151ec8537d4",
+        "ecom_category_id": "ba67ecc9-2ede-49c1-95b7-5e74636a78bb",
+        "name": "Retaining Clips",
+        "slug": "retaining-clips",
+        "display_order": 3,
+        "is_active": true
+      },
+      {
+        "id": "ef86bdab-8f4d-45c8-9af2-5caab1e69e70",
+        "ecom_category_id": "cb09c2e5-f89d-474f-8386-1896dd66c97b",
+        "name": "SD Card Adapters",
+        "slug": "sd-card-adapters",
+        "display_order": 3,
+        "is_active": true
+      },
+      {
+        "id": "831001fe-94ea-4b64-ad3b-90efd76cc715",
+        "ecom_category_id": "02b32fdc-ec3e-4f0c-b58d-b97245095e2a",
+        "name": "Thread Sealants",
+        "slug": "thread-sealants",
+        "display_order": 3,
+        "is_active": true
+      },
+      {
+        "id": "5be187e0-d415-49fb-9f5a-52e5fb1a04df",
+        "ecom_category_id": "ffaa5fba-5ff6-4220-8d61-a4901628f23c",
+        "name": "USB Power Supplies",
+        "slug": "usb-power-supplies",
+        "display_order": 3,
+        "is_active": true
+      },
+      {
+        "id": "d5fb4e4f-2b2a-42fd-9cc2-184fc8c4bebf",
+        "ecom_category_id": "88bca2d5-235a-4d31-b427-6139338b6fc8",
+        "name": "Warning Stickers",
+        "slug": "warning-stickers",
+        "display_order": 3,
+        "is_active": true
+      },
+      {
+        "id": "9a71d7fe-6670-4684-b576-069d6211c651",
+        "ecom_category_id": "7ff8c773-19c0-46f5-a6ea-42ba498e531c",
+        "name": "Cut-Resistant Gloves",
+        "slug": "cut-resistant-gloves",
+        "display_order": 4,
+        "is_active": true
+      },
+      {
+        "id": "5f8e4ae0-daf6-4d92-9b0d-6f1dfd992469",
+        "ecom_category_id": "a90c40ae-4d14-416f-b502-34b8cf97845b",
+        "name": "Electronic Hook-Up Wires",
+        "slug": "electronic-hook-up-wires",
+        "display_order": 4,
+        "is_active": true
+      },
+      {
+        "id": "f1d45e04-d7de-4953-b7f1-8eeb698440c4",
+        "ecom_category_id": "ba67ecc9-2ede-49c1-95b7-5e74636a78bb",
+        "name": "Fastening Clips",
+        "slug": "fastening-clips",
+        "display_order": 4,
+        "is_active": true
+      },
+      {
+        "id": "0e523d98-5189-4f51-8bdf-5c73cbbd9ff6",
+        "ecom_category_id": "88bca2d5-235a-4d31-b427-6139338b6fc8",
+        "name": "Industrial Stickers",
+        "slug": "industrial-stickers",
+        "display_order": 4,
+        "is_active": true
+      },
+      {
+        "id": "b5fb2666-7781-404f-9067-228aa24330be",
+        "ecom_category_id": "c6febc47-30eb-4286-902d-27553337299d",
+        "name": "Markers",
+        "slug": "markers",
+        "display_order": 4,
+        "is_active": true
+      },
+      {
+        "id": "6af72133-38f9-497d-99d6-319c05729824",
+        "ecom_category_id": "ffaa5fba-5ff6-4220-8d61-a4901628f23c",
+        "name": "Power Adapters",
+        "slug": "power-adapters",
+        "display_order": 4,
+        "is_active": true
+      },
+      {
+        "id": "91040ba2-a32e-4b75-a64b-a1ede6d42753",
+        "ecom_category_id": "324bf9c1-8904-4a26-9b41-4d12a4aaa667",
+        "name": "PTFE Tape",
+        "slug": "ptfe-tape",
+        "display_order": 4,
+        "is_active": true
+      },
+      {
+        "id": "f1b526ce-00ad-497b-8171-4e88d52e222e",
+        "ecom_category_id": "16439e34-2df0-4dbf-b3e4-84eb1c9e4565",
+        "name": "Stretch Film Rolls",
+        "slug": "stretch-film-rolls",
+        "display_order": 4,
+        "is_active": true
+      },
+      {
+        "id": "5d66346e-fdd6-402d-8889-971b45048c91",
+        "ecom_category_id": "02b32fdc-ec3e-4f0c-b58d-b97245095e2a",
+        "name": "Structural Adhesives",
+        "slug": "structural-adhesives",
+        "display_order": 4,
+        "is_active": true
+      },
+      {
+        "id": "fc05060f-661b-4680-be9d-b9ce78b0c794",
+        "ecom_category_id": "77c46ea8-0fb7-4fae-b85e-bae8f07c97f7",
+        "name": "Wrenches",
+        "slug": "wrenches",
+        "display_order": 4,
+        "is_active": true
+      },
+      {
+        "id": "e4a04848-2a97-4d19-9943-01b8a9707c52",
+        "ecom_category_id": "77c46ea8-0fb7-4fae-b85e-bae8f07c97f7",
+        "name": "Hex Keys",
+        "slug": "hex-keys",
+        "display_order": 5,
+        "is_active": true
+      },
+      {
+        "id": "37f38f39-6ec5-4c05-88ee-2047d64b7813",
+        "ecom_category_id": "c6febc47-30eb-4286-902d-27553337299d",
+        "name": "Labels",
+        "slug": "labels",
+        "display_order": 5,
+        "is_active": true
+      },
+      {
+        "id": "aac216eb-3598-45e2-8a91-0404a7633bb1",
+        "ecom_category_id": "324bf9c1-8904-4a26-9b41-4d12a4aaa667",
+        "name": "Masking Tape",
+        "slug": "masking-tape",
+        "display_order": 5,
+        "is_active": true
+      },
+      {
+        "id": "a0c4e529-2b12-423d-8bef-ddf7740e8308",
+        "ecom_category_id": "ffaa5fba-5ff6-4220-8d61-a4901628f23c",
+        "name": "Power Cables",
+        "slug": "power-cables",
+        "display_order": 5,
+        "is_active": true
+      },
+      {
+        "id": "ada90e31-a720-4aa1-8106-dead6e790ee5",
+        "ecom_category_id": "7ff8c773-19c0-46f5-a6ea-42ba498e531c",
+        "name": "Safety Gloves",
+        "slug": "safety-gloves",
+        "display_order": 5,
+        "is_active": true
+      },
+      {
+        "id": "d3e83bb4-96dc-4980-8ea1-812cf8975ad2",
+        "ecom_category_id": "77c46ea8-0fb7-4fae-b85e-bae8f07c97f7",
+        "name": "Hand Tool Sets",
+        "slug": "hand-tool-sets",
+        "display_order": 6,
+        "is_active": true
+      },
+      {
+        "id": "1268a389-49d7-48bf-b66e-4f6e1c92fa05",
+        "ecom_category_id": "324bf9c1-8904-4a26-9b41-4d12a4aaa667",
+        "name": "Industrial Adhesive Tape",
+        "slug": "industrial-adhesive-tape",
+        "display_order": 6,
+        "is_active": true
+      },
+      {
+        "id": "2d584e16-11d5-43a1-87d4-0de92e990394",
+        "ecom_category_id": "c6febc47-30eb-4286-902d-27553337299d",
+        "name": "Stationery",
+        "slug": "stationery",
+        "display_order": 6,
+        "is_active": true
+      }
+    ],
+    "ecom_product_catalog": [
+      {
+        "id": "b17fb3d9-3837-41f1-a79e-864b8bf7baf7",
+        "product_id": "5bfefb6c-690d-4a7e-b10a-7a3bb43c51d0",
+        "ecom_category_id": "bcdc0111-220c-40de-b169-3e428ede7589",
+        "ecom_category_type_id": "8e08723d-460c-49de-af8f-551630406c5a",
+        "is_published": true,
+        "display_order": 0,
+        "created_at": "2026-10-14T05:05:31.981Z",
+        "updated_at": "2026-10-14T05:05:31.981Z",
+        "name_override": null,
+        "description_override": null,
+        "price_override": null,
+        "image_url_override": null
+      },
+      {
+        "id": "d14aa3a5-c16b-4404-a513-f11ed0cb4d2b",
+        "product_id": "4a127412-9712-4b42-9b03-b80737005426",
+        "ecom_category_id": "cb09c2e5-f89d-474f-8386-1896dd66c97b",
+        "ecom_category_type_id": "31c5cb3f-77c0-4766-a19f-cbe7e06d5f3d",
+        "is_published": true,
+        "display_order": 0,
+        "created_at": "2026-10-14T05:05:31.981Z",
+        "updated_at": "2026-10-14T05:05:31.981Z",
+        "name_override": null,
+        "description_override": null,
+        "price_override": null,
+        "image_url_override": null
+      },
+      {
+        "id": "bdee073f-2ebe-4088-8085-b3ec72011018",
+        "product_id": "06625016-64b5-4898-a730-18c61e2d5658",
+        "ecom_category_id": "ffaa5fba-5ff6-4220-8d61-a4901628f23c",
+        "ecom_category_type_id": "a0c4e529-2b12-423d-8bef-ddf7740e8308",
+        "is_published": true,
+        "display_order": 0,
+        "created_at": "2026-10-14T05:05:31.981Z",
+        "updated_at": "2026-10-14T05:05:31.981Z",
+        "name_override": null,
+        "description_override": null,
+        "price_override": null,
+        "image_url_override": null
+      },
+      {
+        "id": "59ad93a4-bd48-4e85-a21d-73d7fb59ee20",
+        "product_id": "1d65dce5-8d4d-4e9e-a975-849ff6ca0e41",
+        "ecom_category_id": "ba67ecc9-2ede-49c1-95b7-5e74636a78bb",
+        "ecom_category_type_id": "a501f14b-aa81-46a5-8718-f9453b5927a4",
+        "is_published": true,
+        "display_order": 0,
+        "created_at": "2026-10-14T05:05:31.981Z",
+        "updated_at": "2026-10-14T05:05:31.981Z",
+        "name_override": null,
+        "description_override": null,
+        "price_override": null,
+        "image_url_override": null
+      },
+      {
+        "id": "c4e2beeb-2914-4db9-910d-6a5b8e2230fa",
+        "product_id": "2b5bef07-01f1-4326-9fcc-5768d89eef9e",
+        "ecom_category_id": "324bf9c1-8904-4a26-9b41-4d12a4aaa667",
+        "ecom_category_type_id": "a4d8c9d3-1af6-44d7-bfd0-51cfa1160fd3",
+        "is_published": true,
+        "display_order": 0,
+        "created_at": "2026-10-14T05:05:31.981Z",
+        "updated_at": "2026-10-14T05:05:31.981Z",
+        "name_override": null,
+        "description_override": null,
+        "price_override": null,
+        "image_url_override": null
+      },
+      {
+        "id": "92abde0c-8d33-4f03-8d07-f3797ce4c934",
+        "product_id": "de253afb-76b8-48a2-87d4-7aeec2173961",
+        "ecom_category_id": "16439e34-2df0-4dbf-b3e4-84eb1c9e4565",
+        "ecom_category_type_id": "f1b526ce-00ad-497b-8171-4e88d52e222e",
+        "is_published": true,
+        "display_order": 0,
+        "created_at": "2026-10-14T05:05:31.981Z",
+        "updated_at": "2026-10-14T05:05:31.981Z",
+        "name_override": null,
+        "description_override": null,
+        "price_override": null,
+        "image_url_override": null
+      },
+      {
+        "id": "9adf20b9-fdfc-4415-b230-537b3904f5e5",
+        "product_id": "c1005568-c645-47e6-82f8-eaaf69802410",
+        "ecom_category_id": "a90c40ae-4d14-416f-b502-34b8cf97845b",
+        "ecom_category_type_id": "dc4a3173-c844-44fb-bf70-41a2f4f55cd4",
+        "is_published": true,
+        "display_order": 0,
+        "created_at": "2026-10-14T05:05:31.981Z",
+        "updated_at": "2026-10-14T05:05:31.981Z",
+        "name_override": null,
+        "description_override": null,
+        "price_override": null,
+        "image_url_override": null
+      }
+    ],
+    "ecom_customers": [],
+    "ecom_addresses": [],
+    "ecom_orders": [],
+    "ecom_order_items": [],
+    "ecom_support_tickets": [],
+    "ecom_support_messages": [],
+    "ecom_refund_requests": [],
+    "ecom_notification_outbox": [],
+    "ecom_audit_log": []
+  }
+}

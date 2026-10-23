@@ -23,6 +23,9 @@ function computeValidWebhookSignature(rawBody: string, secret: string): string {
   return crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
 }
 
+// Mock client only needs the `query` shape used by processPaymentConfirmationTransaction.
+const asDbClient = (mock: unknown) => mock as Parameters<typeof processPaymentConfirmationTransaction>[0]["client"];
+
 // --------------------------------------------------------------------------
 // 1. Missing secret is rejected (Fails closed)
 // --------------------------------------------------------------------------
@@ -357,7 +360,7 @@ test("processPaymentConfirmationTransaction handles idempotency and expired hold
 
   const createMockDbClient = (opts: { isAlreadyPaid?: boolean; activeHoldCount: number; orderItemCount?: number }) => {
     return {
-      query: async (sql: string, params: unknown[]) => {
+      query: async (sql: string) => {
         if (sql.includes("SELECT id, order_number, status, payment_status")) {
           return {
             rows: [
@@ -407,7 +410,7 @@ test("processPaymentConfirmationTransaction handles idempotency and expired hold
   // Branch A: Already paid -> Idempotent early return
   const mockAlreadyPaid = createMockDbClient({ isAlreadyPaid: true, activeHoldCount: 1 });
   const resAlreadyPaid = await processPaymentConfirmationTransaction({
-    client: mockAlreadyPaid as any,
+    client: asDbClient(mockAlreadyPaid),
     orderId: "test-order-uuid-1",
     orderNumber: "ECOM-2026-TEST01",
     razorpayOrderId: TEST_ORDER_ID,
@@ -422,7 +425,7 @@ test("processPaymentConfirmationTransaction handles idempotency and expired hold
   // Branch B: Active hold exists -> Normal confirmation
   const mockActiveHold = createMockDbClient({ isAlreadyPaid: false, activeHoldCount: 1, orderItemCount: 1 });
   const resActiveHold = await processPaymentConfirmationTransaction({
-    client: mockActiveHold as any,
+    client: asDbClient(mockActiveHold),
     orderId: "test-order-uuid-1",
     orderNumber: "ECOM-2026-TEST01",
     razorpayOrderId: TEST_ORDER_ID,
@@ -440,7 +443,7 @@ test("processPaymentConfirmationTransaction handles idempotency and expired hold
   // Branch C: Hold EXPIRED (0 active holds) -> Must NOT oversell! Placed in PAYMENT_REVIEW
   const mockExpiredHold = createMockDbClient({ isAlreadyPaid: false, activeHoldCount: 0, orderItemCount: 1 });
   const resExpiredHold = await processPaymentConfirmationTransaction({
-    client: mockExpiredHold as any,
+    client: asDbClient(mockExpiredHold),
     orderId: "test-order-uuid-1",
     orderNumber: "ECOM-2026-TEST01",
     razorpayOrderId: TEST_ORDER_ID,
@@ -460,7 +463,7 @@ test("processPaymentConfirmationTransaction handles idempotency and expired hold
   // Branch D: Partial hold expiration (2 items in order, only 1 hold remaining) -> MUST NOT oversell! Placed in PAYMENT_REVIEW
   const mockPartialHold = createMockDbClient({ isAlreadyPaid: false, activeHoldCount: 1, orderItemCount: 2 });
   const resPartialHold = await processPaymentConfirmationTransaction({
-    client: mockPartialHold as any,
+    client: asDbClient(mockPartialHold),
     orderId: "test-order-uuid-1",
     orderNumber: "ECOM-2026-TEST01",
     razorpayOrderId: TEST_ORDER_ID,
@@ -631,7 +634,7 @@ test("expired inventory holds do not lead to an order being falsely marked paid 
   let stockUpdated = false;
 
   const mockDbClient = {
-    query: async (sql: string, params: unknown[]) => {
+    query: async (sql: string) => {
       if (sql.includes("SELECT id, order_number, status, payment_status")) {
         return {
           rows: [
@@ -671,7 +674,7 @@ test("expired inventory holds do not lead to an order being falsely marked paid 
   };
 
   const result = await processPaymentConfirmationTransaction({
-    client: mockDbClient as any,
+    client: asDbClient(mockDbClient),
     orderId: "order-hold-expired-uuid",
     orderNumber: "ECOM-2026-EXPIRED",
     razorpayOrderId: "order_EXPIRED123",

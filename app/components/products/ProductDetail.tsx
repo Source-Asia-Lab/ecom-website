@@ -57,9 +57,9 @@ export default function ProductDetail({ product }: { product: Product }) {
     <PageContainer as="section" className="product-detail-section">
       {/* Back Navigation Bar */}
       <div className="product-detail-nav-bar">
-        <a className="product-detail__back-link" href="/store" onClick={handleBackClick}>
+        <Link className="product-detail__back-link" href="/store" onClick={handleBackClick}>
           <span aria-hidden="true" className="product-detail__back-arrow">&larr;</span> Back to products
-        </a>
+        </Link>
       </div>
 
       <div className="product-detail__layout">

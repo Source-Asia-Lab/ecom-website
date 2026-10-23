@@ -49,8 +49,8 @@ export type TransitionResult = TransitionResultSuccess | TransitionResultError;
  */
 export async function processStaffOrderStatusTransition(
   params: StaffOrderTransitionInput,
-  client: { query: <T = any>(sql: string, params?: unknown[]) => Promise<{ rows: T[]; rowCount?: number }> },
-  erpQueryFn: (sql: string, params?: unknown[]) => Promise<{ rows: any[] }> = query,
+  client: { query: <T = Record<string, unknown>>(sql: string, params?: unknown[]) => Promise<{ rows: T[]; rowCount?: number }> },
+  erpQueryFn: (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }> = query,
 ): Promise<TransitionResult> {
   const { orderNumber, status, staffEmail } = params;
   const message = params.message?.trim() || "";
@@ -484,7 +484,7 @@ export async function processStaffOrderStatusTransition(
           : null;
 
   if (notificationType) {
-    await enqueueOrderNotification(client as any, {
+    await enqueueOrderNotification(client as Parameters<typeof enqueueOrderNotification>[0], {
       eventKey: `order-status:${order.id}:${status}`,
       eventType: notificationType,
       orderId: order.id,

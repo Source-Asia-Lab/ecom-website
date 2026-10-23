@@ -12,6 +12,16 @@ interface OrderRequest {
   created_at: string;
 }
 
+interface BankTransferRow {
+  order_number: string;
+  transfer_reference: string;
+  amount: string | number;
+  currency: string;
+  status: string;
+  utr_reference: string | null;
+  created_at: string;
+}
+
 interface CatalogProduct {
   product_id: string;
   name: string;
@@ -75,6 +85,7 @@ export default function AdminConsole() {
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [refunds, setRefunds] = useState<RefundRequest[]>([]);
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [bankTransfers, setBankTransfers] = useState<BankTransferRow[]>([]);
   const [catalogCategories, setCatalogCategories] = useState<CatalogCategory[]>([]);
   const [availableProducts, setAvailableProducts] = useState<AvailableErpProduct[]>([]);
   const [message, setMessage] = useState("");
@@ -82,7 +93,7 @@ export default function AdminConsole() {
 
   async function reload() {
     try {
-      const [ordersResult, productsResult, refundsResult, ticketsResult] = await Promise.all([
+      const [ordersResult, productsResult, refundsResult, ticketsResult, transfersResult] = await Promise.all([
         fetch("/api/admin/orders", { cache: "no-store" }).then(readJson<{ orders: OrderRequest[] }>),
         fetch("/api/admin/catalog", { cache: "no-store" }).then(readJson<{
           products: CatalogProduct[];
@@ -91,6 +102,7 @@ export default function AdminConsole() {
         }>),
         fetch("/api/admin/refunds", { cache: "no-store" }).then(readJson<{ refunds: RefundRequest[] }>),
         fetch("/api/admin/support/tickets?status=OPEN,IN_PROGRESS,WAITING_CUSTOMER", { cache: "no-store" }).then(readJson<{ tickets: SupportTicket[] }>),
+        fetch("/api/admin/bank-transfers", { cache: "no-store" }).then(readJson<{ transfers: BankTransferRow[] }>),
       ]);
       setOrders(ordersResult.orders);
       setProducts(productsResult.products);
@@ -98,6 +110,7 @@ export default function AdminConsole() {
       setAvailableProducts(productsResult.availableProducts);
       setRefunds(refundsResult.refunds);
       setTickets(ticketsResult.tickets);
+      setBankTransfers(transfersResult.transfers);
       setMessage("");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not load staff queues.");
@@ -125,6 +138,23 @@ export default function AdminConsole() {
       setMessage(`${orderNumber} updated to ${status}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not update order.");
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function verifyBankTransfer(orderNumber: string, utr: string, action: "confirm" | "reject") {
+    setBusyKey(`transfer:${orderNumber}`);
+    try {
+      await readJson(await fetch("/api/admin/bank-transfers/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderNumber, utr, action }),
+      }));
+      await reload();
+      setMessage(action === "confirm" ? `${orderNumber}: bank transfer verified, order confirmed.` : `${orderNumber}: bank transfer rejected.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not verify bank transfer.");
     } finally {
       setBusyKey("");
     }
@@ -303,6 +333,35 @@ export default function AdminConsole() {
         <span role="status">{message}</span>
         <button type="button" className="support-action-btn support-action-btn--outline" onClick={() => void reload()}>Refresh queues</button>
       </div>
+
+      <section className="admin-section" aria-labelledby="admin-transfers-title">
+        <h2 id="admin-transfers-title">Bank transfer verifications</h2>
+        {bankTransfers.length === 0 ? <p>No bank transfers have been submitted.</p> : bankTransfers.map((transfer) => (
+          <article className="admin-row" key={transfer.order_number}>
+            <div className="admin-row__details">
+              <strong>{transfer.order_number} · {new Intl.NumberFormat("en-IN", { style: "currency", currency: transfer.currency }).format(Number(transfer.amount))}</strong>
+              <span>Reference: {transfer.transfer_reference} · Status: {transfer.status}</span>
+              {transfer.utr_reference && <small>UTR: {transfer.utr_reference}</small>}
+            </div>
+            {transfer.status === "PENDING_VERIFICATION" && (
+              <div className="admin-row__actions">
+                <button
+                  disabled={busyKey === `transfer:${transfer.order_number}`}
+                  onClick={() => void verifyBankTransfer(transfer.order_number, transfer.utr_reference || "", "confirm")}
+                >
+                  Verify & confirm order
+                </button>
+                <button
+                  disabled={busyKey === `transfer:${transfer.order_number}`}
+                  onClick={() => void verifyBankTransfer(transfer.order_number, transfer.utr_reference || "", "reject")}
+                >
+                  Reject
+                </button>
+              </div>
+            )}
+          </article>
+        ))}
+      </section>
 
       <section className="admin-section" aria-labelledby="admin-orders-title">
         <h2 id="admin-orders-title">Order requests</h2>

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
   Button,
@@ -12,7 +11,6 @@ import {
   Input,
   PageContainer,
 } from "../components/ui";
-import BrandLogo from "../components/site/BrandLogo";
 import SectionHeading from "../components/site/SectionHeading";
 import SiteHeader from "../components/site/SiteHeader";
 import SiteFooter from "../components/site/SiteFooter";
@@ -172,7 +170,6 @@ export default function Storefront({
   initialBrands = productBrands,
   initialTotal = 0,
 }: StorefrontProps) {
-  const router = useRouter();
   const [searchTerm, setSearchTerm] = useState(initialSearch);
   const [sortBy, setSortBy] = useState<SortOption>("a-z");
   const [filters, setFilters] = useState<FilterState>({
@@ -193,9 +190,8 @@ export default function Storefront({
   const [categoriesList, setCategoriesList] = useState<string[]>(initialCategories);
   const [brandsList, setBrandsList] = useState<string[]>(initialBrands);
   const [totalCount, setTotalCount] = useState<number>(initialTotal || initialProducts.length);
-  const [isLoading, setIsLoading] = useState(false);
+  const [, setIsLoading] = useState(false);
 
-  const hasHydrated = useCartStore((state) => state.hasHydrated);
   const items = useCartStore((state) => state.items);
   const increaseQuantity = useCartStore((state) => state.increaseQuantity);
   const decreaseQuantity = useCartStore((state) => state.decreaseQuantity);
@@ -456,7 +452,7 @@ export default function Storefront({
             <div className="category-header-banner">
               <div className="category-header-content">
                 <div className="category-header-image-wrap">
-                  <img src={categoryMeta.imageUrl} alt={categoryMeta.title} className="category-header-img" />
+                  <Image src={categoryMeta.imageUrl} alt={categoryMeta.title} width={400} height={200} className="category-header-img" />
                 </div>
                 <div className="category-header-text">
                   <h1 className="category-header-title">{categoryMeta.title}</h1>
@@ -555,7 +551,7 @@ export default function Storefront({
                       title={`Filter by ${subcat.name}`}
                     >
                       <div className="subcategory-card-image-wrap">
-                        <img src={subcat.imageUrl} alt={subcat.name} className="subcategory-card-img" />
+                        <Image src={subcat.imageUrl} alt={subcat.name} width={200} height={120} className="subcategory-card-img" />
                       </div>
                       <div className="subcategory-card-info">
                         <span className="subcategory-card-name">{subcat.name}</span>

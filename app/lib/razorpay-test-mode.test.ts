@@ -156,22 +156,8 @@ test("6. fetchAndVerifyServerPayment strictly enforces exact order ID, amount, c
   assert.match(nonInr.error || "", /must be INR/i);
 });
 
-test("7. External Razorpay sandbox probe: safely skips live calls when test credentials are not configured", () => {
-  const testKeyId = process.env.RAZORPAY_TEST_KEY_ID?.trim();
-  const testKeySecret = process.env.RAZORPAY_TEST_KEY_SECRET?.trim();
-
-  const hasConfiguredCredentials = Boolean(
-    testKeyId &&
-    testKeySecret &&
-    testKeyId !== "rzp_test_sourceasia_dev" &&
-    testKeyId.startsWith("rzp_test_"),
-  );
-
-  if (!hasConfiguredCredentials) {
-    // Expected behavior: No external network calls are made without configured sandbox credentials
-    assert.ok(true, "External network calls are safely bypassed when RAZORPAY_TEST_KEY_ID is not configured");
-  } else {
-    // If credentials were provided in environment, test format
-    assert.match(testKeyId!, /^rzp_test_[A-Za-z0-9]+$/);
-  }
+test("7. External Razorpay sandbox request", t => {
+  // This suite does not call the gateway, even when credentials are present.
+  // Report this honestly as untested rather than passing a credential-format check.
+  t.skip("No actual sandbox request was made; PostgreSQL payment tests use synthetic events.");
 });
