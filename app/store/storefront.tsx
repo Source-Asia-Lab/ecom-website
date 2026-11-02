@@ -1,5 +1,6 @@
 "use client";
 
+import "./products-listing.css";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
@@ -445,8 +446,8 @@ export default function Storefront({
     <div className="store-shell">
       <SiteHeader currentPage="store" onCartClick={() => setIsCartOpen(true)} />
 
-      <main>
-        <PageContainer as="section" className="catalog scroll-reveal" id="catalog" aria-labelledby="catalog-title" style={{ paddingTop: "24px" }}>
+      <main className="products-listing">
+        <PageContainer as="section" className="catalog scroll-reveal" id="catalog" aria-labelledby="catalog-title">
           {/* CATEGORY HEADER BANNER (WHEN CATEGORY IS SELECTED) */}
           {categoryMeta ? (
             <div className="category-header-banner">
@@ -584,7 +585,7 @@ export default function Storefront({
 
             {/* Catalog Main Content */}
             <div className="catalog-main-content">
-              <div className="catalog-toolbar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+              <div className="catalog-toolbar">
                 <div className="catalog-toolbar__left">
                   <button
                     type="button"
@@ -607,14 +608,13 @@ export default function Storefront({
                 </div>
 
                 {/* Sort By Control */}
-                <div className="catalog-toolbar__right" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <label htmlFor="store-sort-by" style={{ fontSize: "13px", fontWeight: "600", color: "#5c6b61" }}>
+                <div className="catalog-toolbar__right">
+                  <label htmlFor="store-sort-by">
                     Sort by:
                   </label>
                   <select
                     id="store-sort-by"
                     className="ui-select"
-                    style={{ minHeight: "36px", height: "36px", fontSize: "13px", paddingRight: "30px" }}
                     value={sortBy}
                     onChange={(e) => setSortBy(e.target.value as SortOption)}
                   >
@@ -783,7 +783,7 @@ export default function Storefront({
         title="Filters"
         description={`${displayedProducts.length} ${displayedProducts.length === 1 ? "product" : "products"} found`}
         onClose={() => setIsFilterMobileOpen(false)}
-        className="filter-drawer"
+        className="filter-drawer products-listing-filter-drawer"
         footer={
           <Button
             className="ui-button--primary"
